@@ -31,10 +31,9 @@ export default function DosenReportPage() {
   const [selectedSemester, setSelectedSemester] = useState("all")
   const [activeTab, setActiveTab] = useState("overview")
 
-  // Filter data for current dosen (simulation)
-  const dosenId = "2" // Assuming current user is dosen-2
-  const dosenAssignments = mockAssignments.filter(a => a.dosenId === dosenId)
-  const dosenRPS = mockRPS.filter(rps => rps.dosenId === dosenId)
+  // Filter data for current dosen
+  const dosenAssignments = mockAssignments.filter(a => a.dosenId === dosenUser.id)
+  const dosenRPS = mockRPS.filter(rps => rps.dosenId === dosenUser.id)
 
   const stats = {
     totalCPL: dosenAssignments.length,

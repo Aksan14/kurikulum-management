@@ -53,8 +53,8 @@ export default function DosenProfilePage() {
   })
 
   const dosenStats = {
-    totalRPS: mockRPS.filter(rps => rps.dosenId === "2").length,
-    totalAssignments: mockAssignments.filter(a => a.dosenId === "2").length,
+    totalRPS: mockRPS.filter(rps => rps.dosenId === dosenUser.id).length,
+    totalAssignments: mockAssignments.filter(a => a.dosenId === dosenUser.id).length,
     pengalaman: "8 tahun",
     publikasi: "15 jurnal"
   }
@@ -375,13 +375,13 @@ export default function DosenProfilePage() {
                     <div className="flex justify-between items-center">
                       <span className="text-gray-600">RPS Disetujui</span>
                       <span className="text-2xl font-bold text-green-600">
-                        {mockRPS.filter(rps => rps.dosenId === "2" && rps.status === "approved").length}
+                        {mockRPS.filter(rps => rps.dosenId === dosenUser.id && rps.status === "approved").length}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-gray-600">RPS Pending</span>
                       <span className="text-2xl font-bold text-yellow-600">
-                        {mockRPS.filter(rps => rps.dosenId === "2" && rps.status === "submitted").length}
+                        {mockRPS.filter(rps => rps.dosenId === dosenUser.id && rps.status === "submitted").length}
                       </span>
                     </div>
                   </div>
@@ -404,13 +404,13 @@ export default function DosenProfilePage() {
                     <div className="flex justify-between items-center">
                       <span className="text-gray-600">Penugasan Diterima</span>
                       <span className="text-2xl font-bold text-green-600">
-                        {mockAssignments.filter(a => a.dosenId === "2" && a.status === "accepted").length}
+                        {mockAssignments.filter(a => a.dosenId === dosenUser.id && a.status === "accepted").length}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-gray-600">Penugasan Selesai</span>
                       <span className="text-2xl font-bold text-blue-600">
-                        {mockAssignments.filter(a => a.dosenId === "2" && a.status === "done").length}
+                        {mockAssignments.filter(a => a.dosenId === dosenUser.id && a.status === "done").length}
                       </span>
                     </div>
                   </div>
