@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { mockRPS, mockCPLs, mockAssignments } from "@/lib/mock-data"
+import { mockRPS, mockCPLs, mockAssignments, mockUsers } from "@/lib/mock-data"
 import { formatDate } from "@/lib/utils"
 
 export default function DosenReportPage() {
@@ -61,8 +61,11 @@ export default function DosenReportPage() {
     { name: "RPS Pending", value: stats.pendingRPS, color: "bg-yellow-500" },
   ]
 
+  // Get dosen user (second user in mockUsers)
+  const dosenUser = mockUsers.find(user => user.role === 'dosen') || mockUsers[1]
+
   return (
-    <DashboardLayout>
+    <DashboardLayout user={{...dosenUser, role: 'dosen'}} unreadNotifications={2}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

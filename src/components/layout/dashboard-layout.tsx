@@ -16,8 +16,13 @@ export interface DashboardLayoutProps {
 export function DashboardLayout({ children, user, unreadNotifications = 0 }: DashboardLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   
-  // Default to kaprodi user if not provided
+  // Default to kaprodi user if not provided, but this should be avoided - always pass user prop
   const currentUser = user || mockUsers[0]
+  
+  // Log warning if no user is provided to help identify problematic pages
+  if (!user) {
+    console.warn('DashboardLayout: No user prop provided. This may cause navigation issues.')
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">

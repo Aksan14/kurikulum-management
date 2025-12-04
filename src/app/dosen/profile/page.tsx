@@ -82,8 +82,11 @@ export default function DosenProfilePage() {
     setIsEditing(false)
   }
 
+  // Get dosen user (second user in mockUsers)
+  const dosenUser = mockUsers.find(user => user.role === 'dosen') || mockUsers[1]
+
   return (
-    <DashboardLayout>
+    <DashboardLayout user={{...dosenUser, role: 'dosen'}} unreadNotifications={2}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

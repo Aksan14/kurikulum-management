@@ -24,7 +24,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { mockAssignments, mockCPLs } from "@/lib/mock-data"
+import { mockAssignments, mockCPLs, mockUsers } from "@/lib/mock-data"
 import { formatDate, getInitials } from "@/lib/utils"
 
 export default function DosenAssignmentPage() {
@@ -36,8 +36,11 @@ export default function DosenAssignmentPage() {
   const [comment, setComment] = useState("")
   const [isProcessing, setIsProcessing] = useState(false)
 
-  // Filter assignments for current dosen (simulation)
-  const dosenAssignments = mockAssignments.filter(a => a.dosenId === "2") // Assuming current user is dosen-2
+  // Get dosen user (use the first dosen user from mockUsers)
+  const dosenUser = mockUsers.find(user => user.role === 'dosen') || mockUsers[1]
+  
+  // Filter assignments for current dosen
+  const dosenAssignments = mockAssignments.filter(a => a.dosenId === dosenUser.id)
 
   const filteredAssignments = dosenAssignments.filter(assignment => {
     const matchesSearch = 
@@ -85,7 +88,7 @@ export default function DosenAssignmentPage() {
   const doneCount = dosenAssignments.filter(a => a.status === "done").length
 
   return (
-    <DashboardLayout>
+    <DashboardLayout user={{...dosenUser, role: 'dosen'}} unreadNotifications={2}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

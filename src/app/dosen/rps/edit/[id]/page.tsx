@@ -23,7 +23,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { mockRPS, mockMataKuliah, mockCPLs } from "@/lib/mock-data"
+import { mockRPS, mockMataKuliah, mockCPLs, mockUsers } from "@/lib/mock-data"
 
 export default function EditRPSPage() {
   const params = useParams()
@@ -129,8 +129,11 @@ export default function EditRPSPage() {
     })
   }
 
+  // Get dosen user (second user in mockUsers)
+  const dosenUser = mockUsers.find(user => user.role === 'dosen') || mockUsers[1]
+
   return (
-    <DashboardLayout>
+    <DashboardLayout user={{...dosenUser, role: 'dosen'}} unreadNotifications={2}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center gap-4">

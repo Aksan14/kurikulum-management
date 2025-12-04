@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatDateTime } from "@/lib/utils"
+import { mockUsers } from "@/lib/mock-data"
 import type { Notification } from "@/types"
 
 const dosenNotifications: Notification[] = [
@@ -28,7 +29,7 @@ const dosenNotifications: Notification[] = [
     userId: "dosen-1",
     title: "Penugasan CPL Baru",
     message: "Anda ditugaskan untuk mengelola CPL-02 pada mata kuliah Basis Data semester ini.",
-    type: "cpl_assignment",
+    type: "assignment",
     isRead: false,
     createdAt: "2024-01-10T09:00:00Z"
   },
@@ -37,27 +38,25 @@ const dosenNotifications: Notification[] = [
     userId: "dosen-1",
     title: "RPS Disetujui",
     message: "RPS Basis Data telah disetujui oleh Kaprodi. Silakan unduh dokumen final.",
-    type: "rps_approval",
+    type: "approval",
     isRead: false,
-    createdAt: "2024-01-09T14:30:00Z",
-    relatedId: "rps-1"
+    createdAt: "2024-01-09T14:30:00Z"
   },
   {
     id: "notif-3",
     userId: "dosen-1",
     title: "Perlu Revisi RPS",
     message: "RPS Pemrograman Web perlu direvisi. Catatan: Mohon tambahkan detail rubrik penilaian.",
-    type: "rps_revision",
+    type: "rejection",
     isRead: false,
-    createdAt: "2024-01-08T11:15:00Z",
-    relatedId: "rps-2"
+    createdAt: "2024-01-08T11:15:00Z"
   },
   {
     id: "notif-4",
     userId: "dosen-1",
     title: "Deadline RPS Mendekati",
     message: "Pengumpulan RPS Data Mining akan berakhir dalam 3 hari. Pastikan RPS sudah lengkap.",
-    type: "deadline",
+    type: "info",
     isRead: true,
     createdAt: "2024-01-07T08:00:00Z"
   },
@@ -66,7 +65,7 @@ const dosenNotifications: Notification[] = [
     userId: "dosen-1",
     title: "Mata Kuliah Baru Ditugaskan",
     message: "Anda ditugaskan untuk mengampu mata kuliah Machine Learning semester depan.",
-    type: "cpl_assignment",
+    type: "assignment",
     isRead: true,
     createdAt: "2024-01-06T10:20:00Z"
   },
@@ -75,7 +74,7 @@ const dosenNotifications: Notification[] = [
     userId: "dosen-1",
     title: "RPS Diajukan",
     message: "RPS Basis Data berhasil diajukan untuk direview Kaprodi.",
-    type: "rps_submission",
+    type: "document",
     isRead: true,
     createdAt: "2024-01-05T15:45:00Z"
   },
@@ -84,7 +83,7 @@ const dosenNotifications: Notification[] = [
     userId: "dosen-1",
     title: "Reminder: Mapping CPL-CPMK",
     message: "Jangan lupa untuk melengkapi mapping CPL-CPMK pada RPS yang sudah disetujui.",
-    type: "deadline",
+    type: "info",
     isRead: true,
     createdAt: "2024-01-04T09:00:00Z"
   }
@@ -187,8 +186,11 @@ export default function DosenNotificationsPage() {
     }
   }
 
+  // Get dosen user (second user in mockUsers)
+  const dosenUser = mockUsers.find(user => user.role === 'dosen') || mockUsers[1]
+
   return (
-    <DashboardLayout>
+    <DashboardLayout user={{...dosenUser, role: 'dosen'}} unreadNotifications={unreadCount}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -267,7 +269,7 @@ export default function DosenNotificationsPage() {
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-purple-900">
-                    {notifications.filter(n => n.type === "cpl_assignment").length}
+                    {notifications.filter(n => n.type === "assignment").length}
                   </p>
                   <p className="text-sm text-purple-700">Penugasan</p>
                 </div>
@@ -283,7 +285,7 @@ export default function DosenNotificationsPage() {
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-orange-900">
-                    {notifications.filter(n => n.type === "rps_revision").length}
+                    {notifications.filter(n => n.type === "rejection").length}
                   </p>
                   <p className="text-sm text-orange-700">Perlu Revisi</p>
                 </div>
@@ -398,7 +400,7 @@ export default function DosenNotificationsPage() {
 
                           {/* Actions */}
                           <div className="flex items-center gap-1">
-                            {notification.relatedId && (
+                            {notification.actionUrl && (
                               <Button variant="ghost" size="sm" className="text-green-600 hover:text-green-700">
                                 Lihat
                               </Button>

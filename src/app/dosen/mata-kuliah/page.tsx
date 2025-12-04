@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { DashboardLayout } from '@/components/layout'
+import { mockUsers } from '@/lib/mock-data'
 import { 
   Search, 
   Plus, 
@@ -177,10 +179,14 @@ export default function DosenMataKuliahPage() {
   const avgRating = filteredMataKuliah.reduce((sum, mk) => sum + mk.evaluasi.rating, 0) / filteredMataKuliah.length || 0
   const totalMahasiswa = filteredMataKuliah.reduce((sum, mk) => sum + mk.jumlahMahasiswa, 0)
 
+  // Get dosen user (second user in mockUsers)
+  const dosenUser = mockUsers.find(user => user.role === 'dosen') || mockUsers[1]
+
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex flex-col gap-2">
+    <DashboardLayout user={{...dosenUser, role: 'dosen'}} unreadNotifications={2}>
+      <div className="space-y-8">
+        {/* Header */}
+        <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold text-slate-900">Mata Kuliah</h1>
         <p className="text-slate-600">
           Kelola dan pantau mata kuliah yang Anda ampu
@@ -493,6 +499,7 @@ export default function DosenMataKuliahPage() {
           </Card>
         </TabsContent>
       </Tabs>
-    </div>
+      </div>
+    </DashboardLayout>
   )
 }
