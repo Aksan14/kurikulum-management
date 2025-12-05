@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DashboardLayout } from '@/components/layout'
-import { mockUsers } from '@/lib/mock-data'
+
 import { 
   Search, 
   Plus, 
@@ -179,326 +179,170 @@ export default function DosenMataKuliahPage() {
   const avgRating = filteredMataKuliah.reduce((sum, mk) => sum + mk.evaluasi.rating, 0) / filteredMataKuliah.length || 0
   const totalMahasiswa = filteredMataKuliah.reduce((sum, mk) => sum + mk.jumlahMahasiswa, 0)
 
-  // Get dosen user (second user in mockUsers)
-  const dosenUser = mockUsers.find(user => user.role === 'dosen') || mockUsers[1]
-
   return (
-    <DashboardLayout user={{...dosenUser, role: 'dosen'}} unreadNotifications={2}>
-      <div className="space-y-8">
+    <DashboardLayout>
+      <div className="space-y-6">
         {/* Header */}
-        <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold text-slate-900">Mata Kuliah</h1>
-        <p className="text-slate-600">
-          Kelola dan pantau mata kuliah yang Anda ampu
-        </p>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100">
-                <BookOpen className="h-6 w-6 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-600">Total Mata Kuliah</p>
-                <p className="text-2xl font-bold text-slate-900">{filteredMataKuliah.length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-green-100">
-                <Award className="h-6 w-6 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-600">Total SKS</p>
-                <p className="text-2xl font-bold text-slate-900">{totalSKS}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-yellow-100">
-                <Users className="h-6 w-6 text-yellow-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-600">Total Mahasiswa</p>
-                <p className="text-2xl font-bold text-slate-900">{totalMahasiswa}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-100">
-                <Star className="h-6 w-6 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-600">Rating Rata-rata</p>
-                <p className="text-2xl font-bold text-slate-900">{avgRating.toFixed(1)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Main Content */}
-      <Tabs defaultValue="list" className="space-y-6">
-        <div className="flex flex-col sm:flex-row gap-4 justify-between">
-          <TabsList>
-            <TabsTrigger value="list">Daftar Mata Kuliah</TabsTrigger>
-            <TabsTrigger value="schedule">Jadwal Mengajar</TabsTrigger>
-            <TabsTrigger value="evaluation">Evaluasi</TabsTrigger>
-          </TabsList>
-
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm">
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-            <Button variant="outline" size="sm">
-              <Upload className="h-4 w-4 mr-2" />
-              Import
-            </Button>
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-2" />
-              Tambah Mata Kuliah
-            </Button>
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Mata Kuliah Saya</h1>
+            <p className="text-slate-600">Daftar mata kuliah yang diampu</p>
           </div>
         </div>
 
-        <TabsContent value="list" className="space-y-6">
-          {/* Filters */}
+        {/* Stats Cards */}
+        <div className="grid gap-4 md:grid-cols-4">
           <Card>
-            <CardContent className="p-6">
-              <div className="flex flex-col sm:flex-row gap-4">
-                <div className="flex-1">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4" />
-                    <Input
-                      placeholder="Cari mata kuliah..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-10"
-                    />
-                  </div>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
+                  <BookOpen className="h-5 w-5 text-blue-600" />
                 </div>
-                <div className="flex gap-2">
-                  <select
-                    value={selectedSemester}
-                    onChange={(e) => setSelectedSemester(e.target.value)}
-                    className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="all">Semua Semester</option>
-                    {[1, 2, 3, 4, 5, 6, 7, 8].map(sem => (
-                      <option key={sem} value={sem.toString()}>Semester {sem}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={selectedJenis}
-                    onChange={(e) => setSelectedJenis(e.target.value)}
-                    className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="all">Semua Jenis</option>
-                    <option value="wajib">Wajib</option>
-                    <option value="pilihan">Pilihan</option>
-                  </select>
-                  <select
-                    value={selectedStatus}
-                    onChange={(e) => setSelectedStatus(e.target.value)}
-                    className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="all">Semua Status</option>
-                    <option value="aktif">Aktif</option>
-                    <option value="nonaktif">Non-aktif</option>
-                    <option value="revisi">Revisi</option>
-                  </select>
+                <div>
+                  <p className="text-2xl font-bold text-slate-900">{filteredMataKuliah.length}</p>
+                  <p className="text-sm text-slate-600">Mata Kuliah</p>
                 </div>
               </div>
             </CardContent>
           </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-100">
+                  <Clock className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-slate-900">{totalSKS}</p>
+                  <p className="text-sm text-slate-600">Total SKS</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-yellow-100">
+                  <Star className="h-5 w-5 text-yellow-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-slate-900">{avgRating.toFixed(1)}</p>
+                  <p className="text-sm text-slate-600">Rata-rata Rating</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100">
+                  <Users className="h-5 w-5 text-purple-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-slate-900">{totalMahasiswa}</p>
+                  <p className="text-sm text-slate-600">Total Mahasiswa</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-          {/* Mata Kuliah List */}
-          <div className="space-y-4">
-            {filteredMataKuliah.map((mk) => (
-              <Card key={mk.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-6">
-                  <div className="flex flex-col lg:flex-row gap-4">
-                    <div className="flex-1 space-y-3">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="font-semibold text-slate-900">{mk.kode} - {mk.nama}</h3>
-                            <Badge className={jenisColors[mk.jenis]} variant="outline">
-                              {mk.jenis}
-                            </Badge>
-                            <Badge className={statusColors[mk.status]} variant="outline">
-                              {mk.status}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-slate-600">{mk.deskripsi}</p>
-                        </div>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                        <div className="flex items-center gap-2">
-                          <Award className="h-4 w-4 text-slate-500" />
-                          <span>{mk.sks} SKS</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4 text-slate-500" />
-                          <span>Semester {mk.semester}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Users className="h-4 w-4 text-slate-500" />
-                          <span>{mk.jumlahMahasiswa} mahasiswa</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Star className="h-4 w-4 text-yellow-500" />
-                          <span>{mk.evaluasi.rating}/5 ({mk.evaluasi.feedback} review)</span>
-                        </div>
-                      </div>
+        {/* Filters */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <Input
+                  placeholder="Cari mata kuliah..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <div className="flex gap-2">
+                <select
+                  value={selectedSemester}
+                  onChange={(e) => setSelectedSemester(e.target.value)}
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                >
+                  <option value="all">Semua Semester</option>
+                  {[1,2,3,4,5,6,7,8].map(s => (
+                    <option key={s} value={s.toString()}>Semester {s}</option>
+                  ))}
+                </select>
+                <select
+                  value={selectedJenis}
+                  onChange={(e) => setSelectedJenis(e.target.value)}
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                >
+                  <option value="all">Semua Jenis</option>
+                  <option value="wajib">Wajib</option>
+                  <option value="pilihan">Pilihan</option>
+                </select>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm">
-                          <GraduationCap className="h-4 w-4 text-slate-500" />
-                          <span className="font-medium">Dosen:</span>
-                          <span>{mk.dosen.join(', ')}</span>
-                        </div>
-                        
-                        {mk.prasyarat.length > 0 && (
-                          <div className="flex items-center gap-2 text-sm">
-                            <Target className="h-4 w-4 text-slate-500" />
-                            <span className="font-medium">Prasyarat:</span>
-                            <div className="flex flex-wrap gap-1">
-                              {mk.prasyarat.map((prasyarat) => (
-                                <Badge key={prasyarat} variant="outline" className="text-xs">
-                                  {prasyarat}
-                                </Badge>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="flex items-center gap-2 text-sm">
-                          <FileText className="h-4 w-4 text-slate-500" />
-                          <span className="font-medium">Status RPS:</span>
-                          <Badge className={rpsStatusColors[mk.rpsStatus]} variant="outline">
-                            {mk.rpsStatus === 'approved' ? 'Disetujui' :
-                             mk.rpsStatus === 'pending' ? 'Menunggu' :
-                             mk.rpsStatus === 'draft' ? 'Draft' : 'Belum ada'}
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="flex flex-row lg:flex-col gap-2 lg:w-32">
-                      <Button variant="outline" size="sm" className="flex-1 lg:flex-none">
-                        <Eye className="h-4 w-4 mr-2" />
-                        Lihat
-                      </Button>
-                      <Button variant="outline" size="sm" className="flex-1 lg:flex-none">
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit
-                      </Button>
-                      <Button variant="outline" size="sm" className="flex-1 lg:flex-none">
-                        <FileText className="h-4 w-4 mr-2" />
-                        RPS
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          {filteredMataKuliah.length === 0 && (
-            <Card>
-              <CardContent className="p-12 text-center">
-                <div className="flex flex-col items-center gap-4">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100">
-                    <BookOpen className="h-8 w-8 text-slate-400" />
-                  </div>
+        {/* Mata Kuliah List */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {filteredMataKuliah.map((mk) => (
+            <Card key={mk.id} className="hover:shadow-md transition-shadow">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="font-semibold text-slate-900">Tidak ada mata kuliah ditemukan</h3>
-                    <p className="text-sm text-slate-600 mt-1">
-                      Coba ubah filter atau kata kunci pencarian Anda
-                    </p>
+                    <Badge className={jenisColors[mk.jenis]} variant="outline">
+                      {mk.jenis === 'wajib' ? 'Wajib' : 'Pilihan'}
+                    </Badge>
+                    <p className="mt-2 font-mono text-sm text-slate-500">{mk.kode}</p>
                   </div>
+                  <Badge className={rpsStatusColors[mk.rpsStatus]}>
+                    {mk.rpsStatus === 'approved' ? 'RPS Approved' : 
+                     mk.rpsStatus === 'pending' ? 'RPS Pending' :
+                     mk.rpsStatus === 'draft' ? 'RPS Draft' : 'No RPS'}
+                  </Badge>
+                </div>
+                <CardTitle className="text-lg">{mk.nama}</CardTitle>
+                <CardDescription className="line-clamp-2">{mk.deskripsi}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between text-sm text-slate-600">
+                  <div className="flex items-center gap-1">
+                    <Clock className="h-4 w-4" />
+                    <span>{mk.sks} SKS</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Calendar className="h-4 w-4" />
+                    <span>Semester {mk.semester}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Users className="h-4 w-4" />
+                    <span>{mk.jumlahMahasiswa}</span>
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <Button variant="outline" size="sm" className="flex-1">
+                    <Eye className="h-4 w-4 mr-1" />
+                    Detail
+                  </Button>
+                  <Button variant="outline" size="sm" className="flex-1">
+                    <FileText className="h-4 w-4 mr-1" />
+                    RPS
+                  </Button>
                 </div>
               </CardContent>
             </Card>
-          )}
-        </TabsContent>
+          ))}
+        </div>
 
-        <TabsContent value="schedule" className="space-y-6">
+        {filteredMataKuliah.length === 0 && (
           <Card>
-            <CardHeader>
-              <CardTitle>Jadwal Mengajar</CardTitle>
-              <CardDescription>
-                Jadwal mengajar semester ini
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-12">
-                <div className="flex flex-col items-center gap-4">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-100">
-                    <Calendar className="h-8 w-8 text-blue-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-slate-900">Jadwal Mengajar</h3>
-                    <p className="text-sm text-slate-600 mt-1">
-                      Fitur jadwal mengajar akan segera tersedia
-                    </p>
-                  </div>
-                  <Button>
-                    Lihat Jadwal
-                  </Button>
-                </div>
-              </div>
+            <CardContent className="p-8 text-center">
+              <BookOpen className="mx-auto h-12 w-12 text-slate-300" />
+              <p className="mt-4 text-slate-600">Tidak ada mata kuliah yang ditemukan</p>
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="evaluation" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Evaluasi Mengajar</CardTitle>
-              <CardDescription>
-                Hasil evaluasi dan feedback dari mahasiswa
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-12">
-                <div className="flex flex-col items-center gap-4">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
-                    <Star className="h-8 w-8 text-green-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-slate-900">Evaluasi Mengajar</h3>
-                    <p className="text-sm text-slate-600 mt-1">
-                      Fitur evaluasi mengajar akan segera tersedia
-                    </p>
-                  </div>
-                  <Button>
-                    Lihat Evaluasi
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+        )}
       </div>
     </DashboardLayout>
   )

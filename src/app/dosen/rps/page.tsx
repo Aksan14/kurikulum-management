@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -27,9 +28,11 @@ import {
   FileText,
   Trash2,
   Copy,
-  MessageSquare
+  MessageSquare,
+  Loader2,
+  AlertCircle
 } from "lucide-react"
-import { mockUsers, mockRPS } from "@/lib/mock-data"
+import { rpsService, RPS, authService } from "@/lib/api"
 import { cn, formatDateTime } from "@/lib/utils"
 import Link from "next/link"
 
@@ -42,15 +45,42 @@ const statusConfig = {
 }
 
 export default function DosenRPSPage() {
-  const user = mockUsers[1] // Dosen user
+  const router = useRouter()
+  const [rpsList, setRpsList] = useState<RPS[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState('all')
 
-  // Filter RPS for current dosen
-  const myRPS = mockRPS.filter(rps => rps.dosenId === user.id)
+  const fetchRPS = useCallback(async () => {
+    // Check if user is authenticated
+    if (!authService.isAuthenticated()) {
+      router.push('/login')
+      return
+    }
+    
+    try {
+      setLoading(true)
+      setError(null)
+      const response = await rpsService.getMy()
+      if (response.data) {
+        const data = Array.isArray(response.data) ? response.data : response.data.data || []
+        setRpsList(data)
+      }
+    } catch (err) {
+      console.error("Error fetching RPS:", err)
+      setError("Gagal memuat data RPS")
+    } finally {
+      setLoading(false)
+    }
+  }, [router])
+
+  useEffect(() => {
+    fetchRPS()
+  }, [fetchRPS])
   
   const getFilteredRPS = () => {
-    let filtered = myRPS
+    let filtered = rpsList
 
     if (activeTab !== 'all') {
       filtered = filtered.filter(rps => rps.status === activeTab)
@@ -58,8 +88,8 @@ export default function DosenRPSPage() {
 
     if (searchQuery) {
       filtered = filtered.filter(rps => 
-        rps.mataKuliahNama.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        rps.kodeMK.toLowerCase().includes(searchQuery.toLowerCase())
+        rps.mata_kuliah_nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        rps.kode_mk.toLowerCase().includes(searchQuery.toLowerCase())
       )
     }
 
@@ -69,15 +99,58 @@ export default function DosenRPSPage() {
   const filteredRPS = getFilteredRPS()
 
   const stats = {
-    all: myRPS.length,
-    draft: myRPS.filter(r => r.status === 'draft').length,
-    submitted: myRPS.filter(r => r.status === 'submitted').length,
-    approved: myRPS.filter(r => r.status === 'approved').length,
-    rejected: myRPS.filter(r => r.status === 'rejected').length,
+    all: rpsList.length,
+    draft: rpsList.filter(r => r.status === 'draft').length,
+    submitted: rpsList.filter(r => r.status === 'submitted').length,
+    approved: rpsList.filter(r => r.status === 'approved').length,
+    rejected: rpsList.filter(r => r.status === 'rejected').length,
+  }
+
+  const handleSubmitRPS = async (rpsId: string) => {
+    try {
+      await rpsService.submit(rpsId)
+      await fetchRPS()
+    } catch (err) {
+      console.error("Error submitting RPS:", err)
+      alert("Gagal mengajukan RPS")
+    }
+  }
+
+  const handleDeleteRPS = async (rpsId: string) => {
+    if (!confirm("Apakah Anda yakin ingin menghapus RPS ini?")) return
+    try {
+      await rpsService.delete(rpsId)
+      await fetchRPS()
+    } catch (err) {
+      console.error("Error deleting RPS:", err)
+      alert("Gagal menghapus RPS")
+    }
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="flex flex-col items-center justify-center h-64 space-y-4">
+          <AlertCircle className="h-12 w-12 text-red-500" />
+          <p className="text-lg text-gray-600">{error}</p>
+          <Button onClick={fetchRPS}>Coba Lagi</Button>
+        </div>
+      </DashboardLayout>
+    )
   }
 
   return (
-    <DashboardLayout user={{...user, role: 'dosen'}} unreadNotifications={2}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Page Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -173,31 +246,31 @@ export default function DosenRPSPage() {
                       </div>
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-lg font-semibold text-slate-900">{rps.mataKuliahNama}</h3>
+                          <h3 className="text-lg font-semibold text-slate-900">{rps.mata_kuliah_nama}</h3>
                           <Badge variant={status.variant}>{status.label}</Badge>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                          <span className="font-mono">{rps.kodeMK}</span>
+                          <span className="font-mono">{rps.kode_mk}</span>
                           <span>•</span>
                           <span>{rps.sks} SKS</span>
                           <span>•</span>
                           <span>Semester {rps.semester}</span>
                           <span>•</span>
-                          <span>{rps.tahunAkademik}</span>
+                          <span>{rps.tahun_akademik}</span>
                         </div>
-                        {rps.status === 'rejected' && rps.reviewNotes && (
+                        {rps.status === 'rejected' && rps.review_notes && (
                           <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3">
                             <div className="flex items-start gap-2">
                               <MessageSquare className="mt-0.5 h-4 w-4 text-red-500" />
                               <div>
                                 <p className="text-xs font-medium text-red-700">Catatan Kaprodi:</p>
-                                <p className="text-sm text-red-600">{rps.reviewNotes}</p>
+                                <p className="text-sm text-red-600">{rps.review_notes}</p>
                               </div>
                             </div>
                           </div>
                         )}
                         <p className="text-xs text-slate-400">
-                          Diperbarui: {formatDateTime(rps.updatedAt)}
+                          Diperbarui: {formatDateTime(rps.updated_at)}
                         </p>
                       </div>
                     </div>
@@ -205,12 +278,12 @@ export default function DosenRPSPage() {
                       {rps.status === 'draft' && (
                         <>
                           <Button variant="outline" size="sm" asChild>
-                            <Link href={`/dosen/rps/${rps.id}/edit`}>
+                            <Link href={`/dosen/rps/edit/${rps.id}`}>
                               <Edit className="h-4 w-4" />
                               Edit
                             </Link>
                           </Button>
-                          <Button size="sm">
+                          <Button size="sm" onClick={() => handleSubmitRPS(rps.id)}>
                             <Send className="h-4 w-4" />
                             Submit
                           </Button>
@@ -218,7 +291,7 @@ export default function DosenRPSPage() {
                       )}
                       {rps.status === 'rejected' && (
                         <Button size="sm" asChild>
-                          <Link href={`/dosen/rps/${rps.id}/edit`}>
+                          <Link href={`/dosen/rps/edit/${rps.id}`}>
                             <Edit className="h-4 w-4" />
                             Revisi
                           </Link>
@@ -239,7 +312,7 @@ export default function DosenRPSPage() {
                           </DropdownMenuItem>
                           {(rps.status === 'draft' || rps.status === 'rejected') && (
                             <DropdownMenuItem asChild>
-                              <Link href={`/dosen/rps/${rps.id}/edit`}>
+                              <Link href={`/dosen/rps/edit/${rps.id}`}>
                                 <Edit className="mr-2 h-4 w-4" />
                                 Edit RPS
                               </Link>
@@ -252,7 +325,10 @@ export default function DosenRPSPage() {
                           {rps.status === 'draft' && (
                             <>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem className="text-red-600 focus:bg-red-50 focus:text-red-700">
+                              <DropdownMenuItem 
+                                className="text-red-600 focus:bg-red-50 focus:text-red-700"
+                                onClick={() => handleDeleteRPS(rps.id)}
+                              >
                                 <Trash2 className="mr-2 h-4 w-4" />
                                 Hapus
                               </DropdownMenuItem>
@@ -278,7 +354,7 @@ export default function DosenRPSPage() {
                       ? `Tidak ada RPS dengan status ${statusConfig[activeTab as keyof typeof statusConfig]?.label || activeTab}`
                       : 'Mulai dengan membuat RPS baru'}
                   </p>
-                  {activeTab === 'all' && myRPS.length === 0 && (
+                  {activeTab === 'all' && rpsList.length === 0 && (
                     <Button className="mt-4" asChild>
                       <Link href="/dosen/rps/create">
                         <Plus className="h-4 w-4" />

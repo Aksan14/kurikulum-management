@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { DashboardLayout } from '@/components/layout'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { 
   Users,
   Search,
@@ -31,9 +32,12 @@ import {
   XCircle,
   Clock,
   AlertTriangle,
-  UserPlus
+  UserPlus,
+  Loader2,
+  RefreshCw
 } from 'lucide-react'
-import { mockUsers } from '@/lib/mock-data'
+import { useAuth } from '@/contexts/AuthContext'
+import { usersService, User as ApiUser, CreateUserRequest } from '@/lib/api/users'
 
 interface User {
   id: string
@@ -54,100 +58,99 @@ interface User {
   mataKuliah?: string[]
 }
 
-// Extended mock data dengan lebih banyak user
-const extendedUsers: User[] = [
-  ...mockUsers.map((user, index) => ({
-    ...user,
-    id: user.id || `user-${index + 1}`,
-    status: 'active' as const,
-    phone: `08123456789${index}`,
-    nip: user.role === 'kaprodi' ? '198501012010011001' : `198${82 + index}0101201001100${index + 1}`,
-    nidn: user.role === 'kaprodi' ? '0101018501' : `010101${85 + index}0${index + 1}`,
-    jabatan: user.role === 'kaprodi' ? 'Ketua Program Studi' : index % 2 === 0 ? 'Lektor' : 'Asisten Ahli',
-    fakultas: 'Fakultas Teknik',
-    prodi: 'Teknik Informatika',
-    lastLogin: `${Math.floor(Math.random() * 24)} jam lalu`,
-    createdAt: `2024-0${Math.floor(Math.random() * 3) + 1}-${String(Math.floor(Math.random() * 28) + 1).padStart(2, '0')}`,
-    isVerified: Math.random() > 0.2,
-    mataKuliah: user.role === 'dosen' ? [
-      'Algoritma dan Pemrograman',
-      'Struktur Data',
-      'Basis Data'
-    ].slice(0, Math.floor(Math.random() * 3) + 1) : undefined
-  })),
-  // Additional users
-  {
-    id: 'user-5',
-    nama: 'Dr. Maya Sari',
-    email: 'maya.sari@university.ac.id',
-    role: 'dosen',
-    status: 'pending',
-    avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150',
-    phone: '081234567894',
-    nidn: '0101018804',
-    jabatan: 'Lektor Kepala',
-    fakultas: 'Fakultas Teknik',
-    prodi: 'Teknik Informatika',
-    lastLogin: 'Belum pernah login',
-    createdAt: '2024-01-15',
-    isVerified: false,
-    mataKuliah: ['Machine Learning', 'Artificial Intelligence']
-  },
-  {
-    id: 'user-6',
-    nama: 'Prof. Budi Santoso',
-    email: 'budi.santoso@university.ac.id',
-    role: 'dosen',
-    status: 'active',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-    phone: '081234567895',
-    nidn: '0101017505',
-    jabatan: 'Guru Besar',
-    fakultas: 'Fakultas Teknik',
-    prodi: 'Teknik Informatika',
-    lastLogin: '30 menit lalu',
-    createdAt: '2023-08-20',
-    isVerified: true,
-    mataKuliah: ['Software Engineering', 'Project Management', 'System Analysis']
-  },
-  {
-    id: 'user-7',
-    nama: 'Dr. Rina Kusuma',
-    email: 'rina.kusuma@university.ac.id',
-    role: 'dosen',
-    status: 'inactive',
-    avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b131?w=150',
-    phone: '081234567896',
-    nidn: '0101018106',
-    jabatan: 'Lektor',
-    fakultas: 'Fakultas Teknik',
-    prodi: 'Teknik Informatika',
-    lastLogin: '2 bulan lalu',
-    createdAt: '2023-09-10',
-    isVerified: true,
-    mataKuliah: ['Web Programming', 'Mobile Development']
-  }
-]
-
 export default function UserManagementPage() {
-  const currentUser = mockUsers[0] // Kaprodi user
-  const [users, setUsers] = useState<User[]>(extendedUsers)
+  const { user: authUser } = useAuth()
+  const currentUser = authUser ? {
+    id: authUser.id,
+    nama: authUser.nama,
+    email: authUser.email,
+    role: authUser.role as "kaprodi" | "dosen" | "admin",
+    avatar: "/avatars/default.png",
+  } : {
+    id: '',
+    nama: 'Guest',
+    email: '',
+    role: 'dosen' as const,
+    avatar: '/avatars/default.png'
+  }
+
+  // Data state
+  const [users, setUsers] = useState<User[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  
+  // Filter state
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'pending'>('all')
   const [roleFilter, setRoleFilter] = useState<'all' | 'kaprodi' | 'dosen' | 'admin'>('all')
   const [selectedUsers, setSelectedUsers] = useState<string[]>([])
+  
+  // Modal state
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [selectedUser, setSelectedUser] = useState<User | null>(null)
+  
+  // Form state
+  const [createForm, setCreateForm] = useState({
+    nama: '',
+    email: '',
+    password: '',
+    role: 'dosen' as 'kaprodi' | 'dosen',
+    phone: ''
+  })
+  const [creating, setCreating] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
+  // Fetch users
+  const fetchUsers = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const params: Record<string, string | number> = { limit: 100 }
+      if (statusFilter !== 'all') params.status = statusFilter
+      if (roleFilter !== 'all') params.role = roleFilter
+      if (searchQuery) params.search = searchQuery
+
+      const response = await usersService.getAll(params)
+      
+      if (response.success && response.data && response.data.data) {
+        const mappedUsers: User[] = response.data.data.map(u => ({
+          id: u.id,
+          nama: u.nama,
+          email: u.email,
+          role: u.role,
+          status: u.status,
+          avatar: u.avatar_url || undefined,
+          phone: u.phone,
+          nip: u.nip,
+          lastLogin: u.last_login || 'Belum pernah login',
+          createdAt: u.created_at,
+          isVerified: true
+        }))
+        setUsers(mappedUsers)
+      } else {
+        setUsers([])
+      }
+    } catch (err) {
+      console.error('Error fetching users:', err)
+      setError('Gagal memuat data user. Pastikan server API berjalan.')
+      setUsers([])
+    } finally {
+      setLoading(false)
+    }
+  }, [statusFilter, roleFilter, searchQuery])
+
+  useEffect(() => {
+    fetchUsers()
+  }, [fetchUsers])
+
+  // Filter
   const filteredUsers = users.filter(user => {
-    const matchesSearch = 
+    const matchesSearch = searchQuery === '' ||
       user.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (user.nidn && user.nidn.includes(searchQuery))
-
-    const matchesStatus = statusFilter === 'all' || user.status === statusFilter
-    const matchesRole = roleFilter === 'all' || user.role === roleFilter
-
-    return matchesSearch && matchesStatus && matchesRole
+    return matchesSearch
   })
 
   const stats = {
@@ -160,12 +163,18 @@ export default function UserManagementPage() {
     unverified: users.filter(u => !u.isVerified).length
   }
 
-  const handleStatusChange = (userId: string, newStatus: 'active' | 'inactive') => {
-    setUsers(prev => 
-      prev.map(user => 
-        user.id === userId ? { ...user, status: newStatus } : user
-      )
-    )
+  const handleStatusChange = async (userId: string) => {
+    try {
+      const response = await usersService.toggleStatus(userId)
+      if (response.success) {
+        fetchUsers()
+      } else {
+        setError('Gagal mengubah status user')
+      }
+    } catch (err) {
+      console.error('Error toggling status:', err)
+      setError('Gagal mengubah status user')
+    }
   }
 
   const handleVerify = (userId: string) => {
@@ -176,10 +185,54 @@ export default function UserManagementPage() {
     )
   }
 
-  const handleDelete = (userId: string) => {
-    if (confirm('Apakah Anda yakin ingin menghapus user ini?')) {
-      setUsers(prev => prev.filter(user => user.id !== userId))
-      setSelectedUsers(prev => prev.filter(id => id !== userId))
+  const handleDelete = async () => {
+    if (!selectedUser) return
+    
+    setDeleting(true)
+    try {
+      const response = await usersService.delete(selectedUser.id)
+      if (response.success) {
+        setShowDeleteModal(false)
+        setSelectedUser(null)
+        fetchUsers()
+      } else {
+        setError('Gagal menghapus user')
+      }
+    } catch (err) {
+      console.error('Error deleting user:', err)
+      setError('Gagal menghapus user')
+    } finally {
+      setDeleting(false)
+      setShowDeleteModal(false)
+      setSelectedUser(null)
+    }
+  }
+
+  const handleCreate = async () => {
+    if (!createForm.nama || !createForm.email || !createForm.password) {
+      return
+    }
+
+    setCreating(true)
+    try {
+      const data: CreateUserRequest = {
+        nama: createForm.nama,
+        email: createForm.email,
+        password: createForm.password,
+        role: createForm.role,
+        phone: createForm.phone || undefined
+      }
+
+      const response = await usersService.create(data)
+      if (response.success) {
+        setShowCreateModal(false)
+        setCreateForm({ nama: '', email: '', password: '', role: 'dosen', phone: '' })
+        fetchUsers()
+      }
+    } catch (err) {
+      console.error('Error creating user:', err)
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -502,10 +555,7 @@ export default function UserManagementPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => {
-                              const newStatus = user.status === 'active' ? 'inactive' : 'active'
-                              handleStatusChange(user.id, newStatus)
-                            }}
+                            onClick={() => handleStatusChange(user.id)}
                             title={user.status === 'active' ? 'Nonaktifkan' : 'Aktifkan'}
                           >
                             {user.status === 'active' ? (
@@ -526,7 +576,10 @@ export default function UserManagementPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleDelete(user.id)}
+                            onClick={() => {
+                              setSelectedUser(user)
+                              setShowDeleteModal(true)
+                            }}
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"
                             title="Hapus user"
                           >
@@ -540,7 +593,7 @@ export default function UserManagementPage() {
               </table>
             </div>
             
-            {filteredUsers.length === 0 && (
+            {filteredUsers.length === 0 && !loading && !error && (
               <div className="py-12 text-center">
                 <Users className="h-12 w-12 text-slate-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-slate-900 mb-2">
@@ -554,9 +607,125 @@ export default function UserManagementPage() {
                 </p>
               </div>
             )}
+
+            {error && !loading && (
+              <div className="py-12 text-center">
+                <AlertTriangle className="h-12 w-12 text-red-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-slate-900 mb-2">
+                  Gagal Memuat Data
+                </h3>
+                <p className="text-slate-600 mb-4">{error}</p>
+                <Button onClick={fetchUsers} variant="outline">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Coba Lagi
+                </Button>
+              </div>
+            )}
+
+            {loading && (
+              <div className="py-12 flex flex-col items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+                <p className="mt-4 text-sm text-slate-500">Memuat data user...</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
+
+      {/* Create User Modal */}
+      <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Tambah User Baru</DialogTitle>
+            <DialogDescription>
+              Buat akun baru untuk dosen atau kaprodi
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="nama">Nama Lengkap</Label>
+              <Input
+                id="nama"
+                placeholder="Dr. John Doe"
+                value={createForm.nama}
+                onChange={(e) => setCreateForm({ ...createForm, nama: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="john.doe@university.ac.id"
+                value={createForm.email}
+                onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                value={createForm.password}
+                onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="role">Role</Label>
+              <select
+                id="role"
+                value={createForm.role}
+                onChange={(e) => setCreateForm({ ...createForm, role: e.target.value as 'kaprodi' | 'dosen' })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="dosen">Dosen</option>
+                <option value="kaprodi">Kaprodi</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Nomor Telepon (opsional)</Label>
+              <Input
+                id="phone"
+                placeholder="08123456789"
+                value={createForm.phone}
+                onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateModal(false)} disabled={creating}>
+              Batal
+            </Button>
+            <Button onClick={handleCreate} disabled={creating}>
+              {creating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <UserPlus className="h-4 w-4 mr-2" />}
+              Tambah User
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Modal */}
+      <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Hapus User</DialogTitle>
+            <DialogDescription>
+              Apakah Anda yakin ingin menghapus user <strong>{selectedUser?.nama}</strong>? 
+              Tindakan ini tidak dapat dibatalkan.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteModal(false)} disabled={deleting}>
+              Batal
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Hapus
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   )
 }

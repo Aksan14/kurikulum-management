@@ -1,8 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { DashboardLayout } from "@/components/layout"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -14,6 +16,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -21,161 +30,330 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Checkbox } from "@/components/ui/checkbox"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { 
-  Plus, 
-  Search, 
-  Filter,
-  Users,
+import {
+  Plus,
+  Search,
+  MoreHorizontal,
+  Eye,
+  Trash2,
   CheckCircle,
-  Clock,
   XCircle,
-  UserCheck,
-  Send,
-  GraduationCap
+  Clock,
+  Users,
+  Target,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
+  Filter
 } from "lucide-react"
-import { mockUsers, mockCPLs, mockAssignments, mockMataKuliah } from "@/lib/mock-data"
-import { cn, formatDateTime } from "@/lib/utils"
-import Link from "next/link"
+import { formatDate } from "@/lib/utils"
+import { cplAssignmentService, CPLAssignment } from "@/lib/api/cpl-assignment"
+import { authService } from "@/lib/api/auth"
 
-const statusConfig = {
-  assigned: { label: 'Ditugaskan', variant: 'warning' as const, color: 'text-amber-600 bg-amber-100' },
-  accepted: { label: 'Diterima', variant: 'info' as const, color: 'text-blue-600 bg-blue-100' },
-  rejected: { label: 'Ditolak', variant: 'danger' as const, color: 'text-red-600 bg-red-100' },
-  done: { label: 'Selesai', variant: 'success' as const, color: 'text-emerald-600 bg-emerald-100' },
+interface DisplayAssignment {
+  id: string
+  cplId: string
+  cplKode: string
+  cplNama: string
+  dosenId: string
+  dosenNama: string
+  dosenEmail: string
+  mataKuliah: string
+  status: 'assigned' | 'accepted' | 'rejected' | 'done' | 'cancelled'
+  assignedAt: string
+  acceptedAt?: string
+  completedAt?: string
+  deadline?: string
+  comment?: string
+  rejectionReason?: string
 }
 
 export default function AssignmentPage() {
-  const user = mockUsers[0]
-  const [searchQuery, setSearchQuery] = useState('')
-  const [filterStatus, setFilterStatus] = useState<string>('all')
-  const [showAssignDialog, setShowAssignDialog] = useState(false)
-  const [selectedCPL, setSelectedCPL] = useState('')
-  const [selectedDosen, setSelectedDosen] = useState('')
-  const [selectedMataKuliah, setSelectedMataKuliah] = useState('')
-
-  const dosenList = mockUsers.filter(u => u.role === 'dosen')
-  const publishedCPLs = mockCPLs.filter(cpl => cpl.status === 'published')
+  const router = useRouter()
+  const [assignments, setAssignments] = useState<DisplayAssignment[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   
-  const filteredAssignments = mockAssignments.filter(a => {
-    const matchesSearch = a.dosenName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         a.mataKuliah.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesStatus = filterStatus === 'all' || a.status === filterStatus
-    return matchesSearch && matchesStatus
+  // Filters
+  const [searchQuery, setSearchQuery] = useState("")
+  const [statusFilter, setStatusFilter] = useState<string>("all")
+  
+  // Dialogs
+  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; assignment: DisplayAssignment | null }>({
+    open: false,
+    assignment: null
+  })
+  const [cancelDialog, setCancelDialog] = useState<{ open: boolean; assignment: DisplayAssignment | null }>({
+    open: false,
+    assignment: null
+  })
+  const [isProcessing, setIsProcessing] = useState(false)
+
+  const fetchAssignments = useCallback(async () => {
+    if (!authService.isAuthenticated()) {
+      router.push('/login')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    try {
+      const params: Record<string, string | number> = { limit: 100 }
+      if (statusFilter !== 'all') params.status = statusFilter
+
+      const response = await cplAssignmentService.getAll(params)
+      
+      if (response.success && response.data && response.data.data) {
+        const mappedData: DisplayAssignment[] = response.data.data.map(a => ({
+          id: a.id,
+          cplId: a.cpl_id,
+          cplKode: a.cpl?.kode || '-',
+          cplNama: a.cpl?.judul || a.cpl?.deskripsi || '-',
+          dosenId: a.dosen_id,
+          dosenNama: a.dosen?.nama || '-',
+          dosenEmail: a.dosen?.email || '-',
+          mataKuliah: a.mata_kuliah || '-',
+          status: a.status,
+          assignedAt: a.assigned_at,
+          acceptedAt: a.accepted_at,
+          completedAt: a.completed_at,
+          deadline: a.deadline,
+          comment: a.comment,
+          rejectionReason: a.rejection_reason
+        }))
+        setAssignments(mappedData)
+      } else {
+        setAssignments([])
+      }
+    } catch (err) {
+      console.error('Error fetching assignments:', err)
+      setError('Gagal memuat data penugasan. Pastikan server API berjalan.')
+    } finally {
+      setLoading(false)
+    }
+  }, [router, statusFilter])
+
+  useEffect(() => {
+    fetchAssignments()
+  }, [fetchAssignments])
+
+  // Filter assignments by search
+  const filteredAssignments = assignments.filter(a => {
+    const matchSearch = searchQuery === "" || 
+      a.cplKode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.cplNama.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.dosenNama.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.mataKuliah.toLowerCase().includes(searchQuery.toLowerCase())
+    return matchSearch
   })
 
+  // Stats
   const stats = {
-    total: mockAssignments.length,
-    assigned: mockAssignments.filter(a => a.status === 'assigned').length,
-    accepted: mockAssignments.filter(a => a.status === 'accepted').length,
-    done: mockAssignments.filter(a => a.status === 'done').length,
+    total: assignments.length,
+    assigned: assignments.filter(a => a.status === 'assigned').length,
+    accepted: assignments.filter(a => a.status === 'accepted').length,
+    done: assignments.filter(a => a.status === 'done').length,
+    rejected: assignments.filter(a => a.status === 'rejected').length
+  }
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'assigned':
+        return <Badge className="bg-yellow-100 text-yellow-700">Menunggu</Badge>
+      case 'accepted':
+        return <Badge className="bg-blue-100 text-blue-700">Diterima</Badge>
+      case 'done':
+        return <Badge className="bg-green-100 text-green-700">Selesai</Badge>
+      case 'rejected':
+        return <Badge className="bg-red-100 text-red-700">Ditolak</Badge>
+      case 'cancelled':
+        return <Badge className="bg-gray-100 text-gray-700">Dibatalkan</Badge>
+      default:
+        return <Badge variant="outline">{status}</Badge>
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteDialog.assignment) return
+    
+    setIsProcessing(true)
+    try {
+      const response = await cplAssignmentService.delete(deleteDialog.assignment.id)
+      if (response.success) {
+        setAssignments(prev => prev.filter(a => a.id !== deleteDialog.assignment!.id))
+        setDeleteDialog({ open: false, assignment: null })
+      }
+    } catch (err) {
+      console.error('Error deleting assignment:', err)
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const handleCancel = async () => {
+    if (!cancelDialog.assignment) return
+    
+    setIsProcessing(true)
+    try {
+      const response = await cplAssignmentService.updateStatus(cancelDialog.assignment.id, {
+        status: 'cancelled',
+        rejection_reason: 'Penugasan dibatalkan oleh Kaprodi'
+      })
+      if (response.success) {
+        fetchAssignments()
+        setCancelDialog({ open: false, assignment: null })
+      }
+    } catch (err) {
+      console.error('Error cancelling assignment:', err)
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-[60vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <span className="ml-2 text-slate-600">Memuat data penugasan...</span>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
+          <AlertCircle className="h-12 w-12 text-red-500" />
+          <p className="text-lg font-medium text-slate-900">Gagal Memuat Data</p>
+          <p className="text-slate-600">{error}</p>
+          <Button onClick={fetchAssignments}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Coba Lagi
+          </Button>
+        </div>
+      </DashboardLayout>
+    )
   }
 
   return (
-    <DashboardLayout user={user} unreadNotifications={3}>
+    <DashboardLayout>
       <div className="space-y-6">
-        {/* Page Header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        {/* Header */}
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900">Penugasan CPL</h1>
-            <p className="mt-1 text-slate-500">
-              Kelola penugasan CPL ke dosen pengampu mata kuliah
+            <h1 className="text-2xl font-bold text-slate-900">Penugasan CPL</h1>
+            <p className="text-slate-600 mt-1">
+              Kelola penugasan Capaian Pembelajaran Lulusan kepada dosen
             </p>
           </div>
-          <Button onClick={() => setShowAssignDialog(true)}>
-            <Plus className="h-4 w-4" />
-            Buat Penugasan
+          <Button asChild className="bg-blue-600 hover:bg-blue-700">
+            <Link href="/kaprodi/assignment/create">
+              <Plus className="h-4 w-4 mr-2" />
+              Buat Penugasan
+            </Link>
           </Button>
         </div>
 
-        {/* Stats */}
-        <div className="grid gap-4 md:grid-cols-4">
+        {/* Stats Cards */}
+        <div className="grid gap-4 md:grid-cols-5">
           <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100">
-                  <Users className="h-6 w-6 text-slate-600" />
-                </div>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
                 <div>
+                  <p className="text-sm text-slate-600">Total</p>
                   <p className="text-2xl font-bold text-slate-900">{stats.total}</p>
-                  <p className="text-sm text-slate-500">Total Penugasan</p>
                 </div>
+                <Users className="h-8 w-8 text-slate-400" />
               </div>
             </CardContent>
           </Card>
-          <Card className="border-amber-200 bg-amber-50">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-100">
-                  <Clock className="h-6 w-6 text-amber-600" />
-                </div>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-2xl font-bold text-amber-900">{stats.assigned}</p>
-                  <p className="text-sm text-amber-700">Menunggu</p>
+                  <p className="text-sm text-yellow-600">Menunggu</p>
+                  <p className="text-2xl font-bold text-yellow-700">{stats.assigned}</p>
                 </div>
+                <Clock className="h-8 w-8 text-yellow-400" />
               </div>
             </CardContent>
           </Card>
-          <Card className="border-blue-200 bg-blue-50">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100">
-                  <UserCheck className="h-6 w-6 text-blue-600" />
-                </div>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-2xl font-bold text-blue-900">{stats.accepted}</p>
-                  <p className="text-sm text-blue-700">Diterima</p>
+                  <p className="text-sm text-blue-600">Diterima</p>
+                  <p className="text-2xl font-bold text-blue-700">{stats.accepted}</p>
                 </div>
+                <Target className="h-8 w-8 text-blue-400" />
               </div>
             </CardContent>
           </Card>
-          <Card className="border-emerald-200 bg-emerald-50">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100">
-                  <CheckCircle className="h-6 w-6 text-emerald-600" />
-                </div>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-2xl font-bold text-emerald-900">{stats.done}</p>
-                  <p className="text-sm text-emerald-700">Selesai</p>
+                  <p className="text-sm text-green-600">Selesai</p>
+                  <p className="text-2xl font-bold text-green-700">{stats.done}</p>
                 </div>
+                <CheckCircle className="h-8 w-8 text-green-400" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-red-600">Ditolak</p>
+                  <p className="text-2xl font-bold text-red-700">{stats.rejected}</p>
+                </div>
+                <XCircle className="h-8 w-8 text-red-400" />
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Search and Filter */}
+        {/* Filters */}
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="p-4">
             <div className="flex flex-col gap-4 md:flex-row md:items-center">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <Input
-                  placeholder="Cari dosen atau mata kuliah..."
-                  className="pl-10"
+                  placeholder="Cari berdasarkan CPL, dosen, atau mata kuliah..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
                 />
               </div>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="w-[180px]">
-                  <Filter className="mr-2 h-4 w-4" />
-                  <SelectValue placeholder="Filter Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Semua Status</SelectItem>
-                  <SelectItem value="assigned">Ditugaskan</SelectItem>
-                  <SelectItem value="accepted">Diterima</SelectItem>
-                  <SelectItem value="rejected">Ditolak</SelectItem>
-                  <SelectItem value="done">Selesai</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex gap-2">
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="w-[180px]">
+                    <Filter className="h-4 w-4 mr-2" />
+                    <SelectValue placeholder="Filter Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Semua Status</SelectItem>
+                    <SelectItem value="assigned">Menunggu</SelectItem>
+                    <SelectItem value="accepted">Diterima</SelectItem>
+                    <SelectItem value="done">Selesai</SelectItem>
+                    <SelectItem value="rejected">Ditolak</SelectItem>
+                    <SelectItem value="cancelled">Dibatalkan</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button variant="outline" onClick={fetchAssignments}>
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Assignment List */}
+        {/* Assignments List */}
         <Card>
           <CardHeader>
             <CardTitle>Daftar Penugasan</CardTitle>
@@ -184,156 +362,196 @@ export default function AssignmentPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {filteredAssignments.map((assignment) => {
-                const status = statusConfig[assignment.status]
-                const cpl = mockCPLs.find(c => c.id === assignment.cplId)
-                
-                return (
-                  <div
-                    key={assignment.id}
-                    className="flex items-center justify-between rounded-lg border border-slate-200 p-4 transition-all hover:border-blue-200 hover:shadow-md"
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className={cn(
-                        "flex h-12 w-12 items-center justify-center rounded-xl",
-                        status.color
-                      )}>
-                        {assignment.status === 'done' ? <CheckCircle className="h-6 w-6" /> :
-                         assignment.status === 'accepted' ? <UserCheck className="h-6 w-6" /> :
-                         assignment.status === 'rejected' ? <XCircle className="h-6 w-6" /> :
-                         <Clock className="h-6 w-6" />}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-semibold text-slate-900">{assignment.mataKuliah}</h4>
-                          <Badge variant={status.variant}>{status.label}</Badge>
-                        </div>
-                        <p className="mt-0.5 text-sm text-slate-500">
-                          Dosen: {assignment.dosenName}
-                        </p>
-                        {cpl && (
-                          <div className="mt-1 flex items-center gap-2">
-                            <Badge variant="outline" className="text-xs">
-                              <GraduationCap className="mr-1 h-3 w-3" />
-                              {cpl.kode}
+            {filteredAssignments.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Users className="h-12 w-12 text-slate-300 mb-4" />
+                <h3 className="text-lg font-medium text-slate-900">Belum ada penugasan</h3>
+                <p className="text-slate-500 mt-1">
+                  {searchQuery || statusFilter !== 'all' 
+                    ? 'Tidak ada penugasan yang sesuai dengan filter' 
+                    : 'Mulai dengan membuat penugasan CPL baru'}
+                </p>
+                {!searchQuery && statusFilter === 'all' && (
+                  <Button asChild className="mt-4">
+                    <Link href="/kaprodi/assignment/create">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Buat Penugasan
+                    </Link>
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b text-left text-sm text-slate-600">
+                      <th className="pb-3 font-medium">CPL</th>
+                      <th className="pb-3 font-medium">Dosen</th>
+                      <th className="pb-3 font-medium">Mata Kuliah</th>
+                      <th className="pb-3 font-medium">Status</th>
+                      <th className="pb-3 font-medium">Tanggal</th>
+                      <th className="pb-3 font-medium text-right">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {filteredAssignments.map((assignment) => (
+                      <tr key={assignment.id} className="text-sm">
+                        <td className="py-4">
+                          <div>
+                            <Badge className="bg-blue-100 text-blue-700 mb-1">
+                              {assignment.cplKode}
                             </Badge>
-                            <span className="text-xs text-slate-400">{cpl.judul}</span>
+                            <p className="text-slate-600 text-xs line-clamp-1">
+                              {assignment.cplNama}
+                            </p>
                           </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-slate-500">
-                        Ditugaskan: {formatDateTime(assignment.assignedAt)}
-                      </p>
-                      {assignment.acceptedAt && (
-                        <p className="text-xs text-slate-400">
-                          Diterima: {formatDateTime(assignment.acceptedAt)}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-
-              {filteredAssignments.length === 0 && (
-                <div className="py-12 text-center">
-                  <Users className="mx-auto h-12 w-12 text-slate-300" />
-                  <h3 className="mt-4 text-lg font-medium text-slate-900">Tidak ada penugasan</h3>
-                  <p className="mt-2 text-sm text-slate-500">
-                    Mulai dengan membuat penugasan CPL ke dosen
-                  </p>
-                </div>
-              )}
-            </div>
+                        </td>
+                        <td className="py-4">
+                          <div>
+                            <p className="font-medium text-slate-900">{assignment.dosenNama}</p>
+                            <p className="text-xs text-slate-500">{assignment.dosenEmail}</p>
+                          </div>
+                        </td>
+                        <td className="py-4">
+                          <p className="text-slate-700">{assignment.mataKuliah}</p>
+                        </td>
+                        <td className="py-4">
+                          {getStatusBadge(assignment.status)}
+                          {assignment.rejectionReason && (
+                            <p className="text-xs text-red-500 mt-1">
+                              {assignment.rejectionReason}
+                            </p>
+                          )}
+                        </td>
+                        <td className="py-4">
+                          <p className="text-slate-700">{formatDate(assignment.assignedAt)}</p>
+                          {assignment.deadline && (
+                            <p className="text-xs text-slate-500">
+                              Deadline: {formatDate(assignment.deadline)}
+                            </p>
+                          )}
+                        </td>
+                        <td className="py-4 text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem asChild>
+                                <Link href={`/kaprodi/cpl/${assignment.cplId}`}>
+                                  <Eye className="mr-2 h-4 w-4" />
+                                  Lihat CPL
+                                </Link>
+                              </DropdownMenuItem>
+                              {(assignment.status === 'assigned' || assignment.status === 'accepted') && (
+                                <DropdownMenuItem 
+                                  onClick={() => setCancelDialog({ open: true, assignment })}
+                                  className="text-yellow-600"
+                                >
+                                  <XCircle className="mr-2 h-4 w-4" />
+                                  Batalkan
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem 
+                                onClick={() => setDeleteDialog({ open: true, assignment })}
+                                className="text-red-600"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Hapus
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
+      </div>
 
-        {/* Assign Dialog */}
-        <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Buat Penugasan Baru</DialogTitle>
-              <DialogDescription>
-                Tugaskan CPL ke dosen untuk mata kuliah tertentu
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Pilih CPL</Label>
-                <Select value={selectedCPL} onValueChange={setSelectedCPL}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pilih CPL yang akan ditugaskan" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {publishedCPLs.map((cpl) => (
-                      <SelectItem key={cpl.id} value={cpl.id}>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs">{cpl.kode}</span>
-                          <span className="text-sm">{cpl.judul}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Pilih Dosen</Label>
-                <Select value={selectedDosen} onValueChange={setSelectedDosen}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pilih dosen pengampu" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {dosenList.map((dosen) => (
-                      <SelectItem key={dosen.id} value={dosen.id}>
-                        {dosen.nama}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Pilih Mata Kuliah</Label>
-                <Select value={selectedMataKuliah} onValueChange={setSelectedMataKuliah}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pilih mata kuliah" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mockMataKuliah.map((mk) => (
-                      <SelectItem key={mk.id} value={mk.id}>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs">{mk.kode}</span>
-                          <span className="text-sm">{mk.nama}</span>
-                          <Badge variant="outline" className="text-xs">{mk.sks} SKS</Badge>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-center space-x-2 rounded-lg bg-slate-50 p-3">
-                <Checkbox id="notify" defaultChecked />
-                <Label htmlFor="notify" className="text-sm font-normal">
-                  Kirim notifikasi ke dosen
-                </Label>
+      {/* Delete Dialog */}
+      <Dialog open={deleteDialog.open} onOpenChange={(open) => setDeleteDialog({ open, assignment: null })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center gap-2">
+              <AlertCircle className="h-5 w-5" />
+              Hapus Penugasan
+            </DialogTitle>
+            <DialogDescription>
+              Apakah Anda yakin ingin menghapus penugasan ini? Tindakan ini tidak dapat dibatalkan.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteDialog.assignment && (
+            <div className="py-4">
+              <div className="p-4 bg-red-50 rounded-lg border border-red-200">
+                <p className="font-medium text-red-900">
+                  {deleteDialog.assignment.cplKode} - {deleteDialog.assignment.dosenNama}
+                </p>
+                <p className="text-sm text-red-700 mt-1">
+                  Mata Kuliah: {deleteDialog.assignment.mataKuliah}
+                </p>
               </div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowAssignDialog(false)}>
-                Batal
-              </Button>
-              <Button onClick={() => setShowAssignDialog(false)}>
-                <Send className="h-4 w-4" />
-                Kirim Penugasan
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialog({ open: false, assignment: null })}>
+              Batal
+            </Button>
+            <Button 
+              className="bg-red-600 hover:bg-red-700"
+              onClick={handleDelete}
+              disabled={isProcessing}
+            >
+              {isProcessing ? "Menghapus..." : "Ya, Hapus"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel Dialog */}
+      <Dialog open={cancelDialog.open} onOpenChange={(open) => setCancelDialog({ open, assignment: null })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-yellow-600 flex items-center gap-2">
+              <XCircle className="h-5 w-5" />
+              Batalkan Penugasan
+            </DialogTitle>
+            <DialogDescription>
+              Apakah Anda yakin ingin membatalkan penugasan ini? Dosen yang ditugaskan akan mendapat notifikasi.
+            </DialogDescription>
+          </DialogHeader>
+          {cancelDialog.assignment && (
+            <div className="py-4">
+              <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                <p className="font-medium text-yellow-900">
+                  {cancelDialog.assignment.cplKode} - {cancelDialog.assignment.dosenNama}
+                </p>
+                <p className="text-sm text-yellow-700 mt-1">
+                  Mata Kuliah: {cancelDialog.assignment.mataKuliah}
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancelDialog({ open: false, assignment: null })}>
+              Tidak
+            </Button>
+            <Button 
+              className="bg-yellow-600 hover:bg-yellow-700"
+              onClick={handleCancel}
+              disabled={isProcessing}
+            >
+              {isProcessing ? "Membatalkan..." : "Ya, Batalkan"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   )
 }

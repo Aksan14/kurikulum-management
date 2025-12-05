@@ -1,15 +1,17 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { GraduationCap, User, BookOpen, ArrowRight, Eye, EyeOff, Shield, Sparkles } from "lucide-react"
+import { GraduationCap, User, BookOpen, ArrowRight, Eye, EyeOff, Shield, Sparkles, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useAuth } from "@/contexts"
 
 export default function LoginPage() {
   const router = useRouter()
+  const { login, isAuthenticated, isLoading: authLoading, user } = useAuth()
   const [showPassword, setShowPassword] = useState(false)
   const [selectedRole, setSelectedRole] = useState<"kaprodi" | "dosen" | null>(null)
   const [formData, setFormData] = useState({
@@ -17,24 +19,44 @@ export default function LoginPage() {
     password: ""
   })
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      router.push(`/${user.role}/dashboard`)
+    }
+  }, [isAuthenticated, user, router])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedRole) return
+    if (!formData.email || !formData.password) {
+      setError("Email dan password harus diisi")
+      return
+    }
 
     setIsLoading(true)
+    setError(null)
     
-    // Simulate login delay
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    
-    // Navigate to appropriate dashboard
-    router.push(`/${selectedRole}/dashboard`)
+    try {
+      await login({
+        email: formData.email,
+        password: formData.password
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login gagal. Silakan coba lagi.')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const handleQuickLogin = async (role: "kaprodi" | "dosen") => {
-    setIsLoading(true)
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    router.push(`/${role}/dashboard`)
+  // Don't show login page if already authenticated
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    )
   }
 
   return (
@@ -124,65 +146,24 @@ export default function LoginPage() {
           <Card className="border-0 shadow-xl">
             <CardHeader className="space-y-1 pb-6">
               <CardTitle className="text-2xl font-bold text-center">
-                Selamat Datang
+                Selemat Datang
               </CardTitle>
               <CardDescription className="text-center">
-                Pilih role dan masuk ke sistem
+                Masuk untuk mengelola kurikulum Anda
               </CardDescription>
             </CardHeader>
             <CardContent>
               {/* Role Selection */}
               <div className="grid grid-cols-2 gap-3 mb-6">
-                <button
-                  type="button"
-                  onClick={() => setSelectedRole("kaprodi")}
-                  className={`
-                    p-4 rounded-xl border-2 transition-all duration-200
-                    ${selectedRole === "kaprodi" 
-                      ? "border-blue-600 bg-blue-50 ring-2 ring-blue-200" 
-                      : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-                    }
-                  `}
-                >
-                  <div className={`
-                    mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-2
-                    ${selectedRole === "kaprodi" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600"}
-                  `}>
-                    <Shield className="h-6 w-6" />
-                  </div>
-                  <p className={`font-medium text-sm ${selectedRole === "kaprodi" ? "text-blue-900" : "text-gray-700"}`}>
-                    Kaprodi
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Ketua Program Studi
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedRole("dosen")}
-                  className={`
-                    p-4 rounded-xl border-2 transition-all duration-200
-                    ${selectedRole === "dosen" 
-                      ? "border-blue-600 bg-blue-50 ring-2 ring-blue-200" 
-                      : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-                    }
-                  `}
-                >
-                  <div className={`
-                    mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-2
-                    ${selectedRole === "dosen" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600"}
-                  `}>
-                    <User className="h-6 w-6" />
-                  </div>
-                  <p className={`font-medium text-sm ${selectedRole === "dosen" ? "text-blue-900" : "text-gray-700"}`}>
-                    Dosen
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Pengampu Mata Kuliah
-                  </p>
-                </button>
               </div>
+
+              {/* Error Message */}
+              {error && (
+                <div className="p-3 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2 text-red-700">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <p className="text-sm">{error}</p>
+                </div>
+              )}
 
               {/* Login Form */}
               <form onSubmit={handleLogin} className="space-y-4">
@@ -191,9 +172,12 @@ export default function LoginPage() {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="nama@universitas.ac.id"
+                    placeholder="nama@unismuh.ac.id"
                     value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, email: e.target.value })
+                      setError(null)
+                    }}
                     className="h-11"
                   />
                 </div>
@@ -206,7 +190,10 @@ export default function LoginPage() {
                       type={showPassword ? "text" : "password"}
                       placeholder="Masukkan password"
                       value={formData.password}
-                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                      onChange={(e) => {
+                        setFormData({ ...formData, password: e.target.value })
+                        setError(null)
+                      }}
                       className="h-11 pr-10"
                     />
                     <button
@@ -232,7 +219,7 @@ export default function LoginPage() {
                 <Button 
                   type="submit" 
                   className="w-full h-11"
-                  disabled={!selectedRole || isLoading}
+                  disabled={isLoading || !formData.email || !formData.password}
                 >
                   {isLoading ? (
                     <span className="flex items-center gap-2">
@@ -250,40 +237,6 @@ export default function LoginPage() {
                   )}
                 </Button>
               </form>
-
-              {/* Divider */}
-              <div className="relative my-6">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-200"></div>
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-white px-2 text-gray-500">Demo Akun</span>
-                </div>
-              </div>
-
-              {/* Quick Login Buttons */}
-              <div className="grid grid-cols-2 gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-10"
-                  onClick={() => handleQuickLogin("kaprodi")}
-                  disabled={isLoading}
-                >
-                  <Shield className="h-4 w-4 mr-2" />
-                  Demo Kaprodi
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-10"
-                  onClick={() => handleQuickLogin("dosen")}
-                  disabled={isLoading}
-                >
-                  <User className="h-4 w-4 mr-2" />
-                  Demo Dosen
-                </Button>
-              </div>
             </CardContent>
           </Card>
 

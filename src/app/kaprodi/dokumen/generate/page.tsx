@@ -27,7 +27,6 @@ import {
   GraduationCap,
   Users
 } from 'lucide-react'
-import { mockUsers, mockCPLs, mockRPS } from '@/lib/mock-data'
 import { Input } from '@/components/ui/input'
 
 interface DocumentTemplate {
@@ -128,7 +127,6 @@ const statusIcons = {
 }
 
 export default function GenerateDocumentPage() {
-  const user = mockUsers[0] // Kaprodi user
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedType, setSelectedType] = useState<string>('all')
   const [selectedFormat, setSelectedFormat] = useState<string>('all')
@@ -187,7 +185,7 @@ export default function GenerateDocumentPage() {
   }
 
   return (
-    <DashboardLayout user={user}>
+    <DashboardLayout>
       <div className="space-y-8">
         {/* Header */}
         <div className="flex flex-col gap-2">

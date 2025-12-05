@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { 
   ArrowLeft,
@@ -16,7 +16,10 @@ import {
   Users,
   Link2,
   AlertCircle,
-  MoreHorizontal
+  MoreHorizontal,
+  Loader2,
+  RefreshCw,
+  AlertTriangle
 } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,26 +28,136 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { mockCPLs, mockAssignments, mockRPS, mockUsers } from "@/lib/mock-data"
 import { formatDate, getInitials } from "@/lib/utils"
+import { useAuth } from "@/contexts/AuthContext"
+import { cplService, CPL as ApiCPL } from "@/lib/api/cpl"
+import { cplAssignmentService } from "@/lib/api/cpl-assignment"
+import { rpsService } from "@/lib/api/rps"
+
+// Local CPL type for display
+interface DisplayCPL {
+  id: string;
+  kode: string;
+  nama: string;
+  deskripsi: string;
+  status: 'draft' | 'published' | 'archived';
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface DisplayAssignment {
+  id: string;
+  cplId: string;
+  dosenId: string;
+  dosenName: string;
+  mataKuliah: string;
+  status: string;
+  assignedAt: string;
+}
+
+interface DisplayRPS {
+  id: string;
+  mataKuliahNama: string;
+  dosenNama: string;
+  status: string;
+  kodeMK?: string;
+  sks?: number;
+  semester?: number;
+}
 
 export default function CPLDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const { user: authUser } = useAuth()
   const cplId = params.id as string
   
-  const cpl = mockCPLs.find(c => c.id === cplId) || mockCPLs[0]
-  
+  // State
+  const [cpl, setCpl] = useState<DisplayCPL | null>(null)
+  const [relatedAssignments, setRelatedAssignments] = useState<DisplayAssignment[]>([])
+  const [relatedRPS, setRelatedRPS] = useState<DisplayRPS[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState("overview")
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showPublishDialog, setShowPublishDialog] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
 
-  // Get related assignments and RPS
-  const relatedAssignments = mockAssignments.filter(a => a.cplId === cpl.id)
-  const relatedRPS = mockRPS.filter(rps => 
-    rps.cpmk.some(cpmk => cpmk.cplIds.includes(cpl.id))
-  )
+  // Fetch CPL data
+  useEffect(() => {
+    const fetchCPL = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const response = await cplService.getById(cplId)
+        if (response.success && response.data) {
+          setCpl({
+            id: response.data.id,
+            kode: response.data.kode,
+            nama: response.data.nama,
+            deskripsi: response.data.deskripsi,
+            status: response.data.status,
+            version: response.data.version,
+            createdAt: response.data.created_at,
+            updatedAt: response.data.updated_at
+          })
+          
+          // Fetch related assignments
+          try {
+            const assignmentsResponse = await cplAssignmentService.getAll({ cpl_id: cplId })
+            if (assignmentsResponse.success && assignmentsResponse.data && assignmentsResponse.data.data) {
+              setRelatedAssignments(assignmentsResponse.data.data.map(a => ({
+                id: a.id,
+                cplId: a.cpl_id,
+                dosenId: a.dosen_id,
+                dosenName: a.dosen?.nama || 'Unknown',
+                mataKuliah: a.mata_kuliah || '',
+                status: a.status,
+                assignedAt: a.assigned_at
+              })))
+            } else {
+              setRelatedAssignments([])
+            }
+          } catch (err) {
+            console.error('Error fetching assignments:', err)
+            setRelatedAssignments([])
+          }
+          
+          // Fetch related RPS
+          try {
+            const rpsResponse = await rpsService.getAll({ limit: 10 })
+            if (rpsResponse.success && rpsResponse.data && rpsResponse.data.data) {
+              setRelatedRPS(rpsResponse.data.data.slice(0, 5).map(r => ({
+                id: r.id,
+                mataKuliahNama: r.mata_kuliah_nama,
+                dosenNama: r.dosen_nama,
+                status: r.status,
+                kodeMK: r.kode_mk,
+                sks: r.sks,
+                semester: r.semester
+              })))
+            } else {
+              setRelatedRPS([])
+            }
+          } catch (err) {
+            console.error('Error fetching RPS:', err)
+            setRelatedRPS([])
+          }
+        } else {
+          setError('CPL tidak ditemukan')
+        }
+      } catch (err) {
+        console.error('Error fetching CPL:', err)
+        setError('Gagal memuat data CPL. Pastikan server API berjalan.')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    if (cplId) {
+      fetchCPL()
+    }
+  }, [cplId])
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -59,34 +172,65 @@ export default function CPLDetailPage() {
     }
   }
 
-  const getAspekBadge = (aspek: string) => {
-    switch (aspek) {
-      case "pengetahuan":
-        return <Badge className="bg-blue-100 text-blue-700">Pengetahuan</Badge>
-      case "keterampilan_umum":
-        return <Badge className="bg-green-100 text-green-700">Keterampilan Umum</Badge>
-      case "keterampilan_khusus":
-        return <Badge className="bg-purple-100 text-purple-700">Keterampilan Khusus</Badge>
-      case "sikap":
-        return <Badge className="bg-orange-100 text-orange-700">Sikap</Badge>
-      default:
-        return <Badge variant="outline">{aspek}</Badge>
+  const handlePublish = async () => {
+    if (!cpl) return
+    setIsProcessing(true)
+    try {
+      const response = await cplService.updateStatus(cpl.id, 'published')
+      if (response.success && response.data) {
+        setCpl({
+          ...cpl,
+          status: 'published'
+        })
+      }
+    } catch (err) {
+      console.error('Error publishing CPL:', err)
+    } finally {
+      setIsProcessing(false)
+      setShowPublishDialog(false)
     }
   }
 
-  const handlePublish = async () => {
+  const handleDelete = async () => {
+    if (!cpl) return
     setIsProcessing(true)
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    setIsProcessing(false)
-    setShowPublishDialog(false)
+    try {
+      const response = await cplService.delete(cpl.id)
+      if (response.success) {
+        router.push("/kaprodi/cpl")
+      }
+    } catch (err) {
+      console.error('Error deleting CPL:', err)
+    } finally {
+      setIsProcessing(false)
+      setShowDeleteDialog(false)
+    }
   }
 
-  const handleDelete = async () => {
-    setIsProcessing(true)
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    setIsProcessing(false)
-    setShowDeleteDialog(false)
-    router.push("/kaprodi/cpl")
+  // Loading state
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  // Error or not found
+  if (error || !cpl) {
+    return (
+      <DashboardLayout>
+        <div className="flex flex-col items-center justify-center min-h-[400px]">
+          <AlertCircle className="h-12 w-12 text-red-500" />
+          <h3 className="mt-4 text-lg font-medium text-gray-900">{error || 'CPL tidak ditemukan'}</h3>
+          <Button className="mt-4" onClick={() => router.push('/kaprodi/cpl')}>
+            Kembali ke Daftar CPL
+          </Button>
+        </div>
+      </DashboardLayout>
+    )
   }
 
   return (
@@ -112,14 +256,10 @@ export default function CPLDetailPage() {
                   <Badge className="bg-blue-600 text-white text-lg px-3 py-1">{cpl.kode}</Badge>
                   {getStatusBadge(cpl.status)}
                 </div>
-                <h1 className="text-2xl font-bold text-gray-900 mt-1">{cpl.judul}</h1>
+                <h1 className="text-2xl font-bold text-gray-900 mt-1">{cpl.nama}</h1>
               </div>
             </div>
             <div className="flex items-center gap-3 text-sm text-gray-500">
-              {getAspekBadge(cpl.aspek)}
-              <span>•</span>
-              <span>{cpl.kategori}</span>
-              <span>•</span>
               <span>Versi {cpl.version}</span>
             </div>
           </div>
@@ -250,12 +390,8 @@ export default function CPLDetailPage() {
                     <span className="font-medium">{cpl.kode}</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b">
-                    <span className="text-gray-500">Aspek</span>
-                    {getAspekBadge(cpl.aspek)}
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b">
-                    <span className="text-gray-500">Kategori</span>
-                    <span className="font-medium">{cpl.kategori}</span>
+                    <span className="text-gray-500">Nama</span>
+                    <span className="font-medium">{cpl.nama}</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b">
                     <span className="text-gray-500">Status</span>
@@ -289,7 +425,7 @@ export default function CPLDetailPage() {
                     <div className="flex items-center justify-between">
                       <span className="text-purple-700">CPMK Terkait</span>
                       <span className="text-2xl font-bold text-purple-700">
-                        {relatedRPS.reduce((acc, rps) => acc + rps.cpmk.filter(c => c.cplIds.includes(cpl.id)).length, 0)}
+                        {relatedAssignments.length}
                       </span>
                     </div>
                   </div>
@@ -315,7 +451,6 @@ export default function CPLDetailPage() {
                 {relatedAssignments.length > 0 ? (
                   <div className="space-y-3">
                     {relatedAssignments.map((assignment) => {
-                      const dosen = mockUsers.find(u => u.id === assignment.dosenId)
                       return (
                         <div key={assignment.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border">
                           <div className="flex items-center gap-4">
@@ -386,7 +521,7 @@ export default function CPLDetailPage() {
                           </div>
                           <div>
                             <p className="font-medium text-gray-900">{rps.mataKuliahNama}</p>
-                            <p className="text-sm text-gray-500">{rps.kodeMK} • {rps.sks} SKS • Semester {rps.semester}</p>
+                            <p className="text-sm text-gray-500">{rps.kodeMK || ''} {rps.sks ? `• ${rps.sks} SKS` : ''} {rps.semester ? `• Semester ${rps.semester}` : ''}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
@@ -433,7 +568,7 @@ export default function CPLDetailPage() {
           </DialogHeader>
           <div className="py-4">
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="font-medium text-blue-900">{cpl.kode} - {cpl.judul}</p>
+              <p className="font-medium text-blue-900">{cpl.kode} - {cpl.nama}</p>
               <p className="text-sm text-blue-700 mt-1">{cpl.deskripsi.slice(0, 100)}...</p>
             </div>
           </div>
@@ -466,7 +601,7 @@ export default function CPLDetailPage() {
           </DialogHeader>
           <div className="py-4">
             <div className="p-4 bg-red-50 rounded-lg border border-red-200">
-              <p className="font-medium text-red-900">{cpl.kode} - {cpl.judul}</p>
+              <p className="font-medium text-red-900">{cpl.kode} - {cpl.nama}</p>
               <p className="text-sm text-red-700 mt-2">
                 <AlertCircle className="h-4 w-4 inline mr-1" />
                 {relatedRPS.length} RPS akan kehilangan mapping ke CPL ini

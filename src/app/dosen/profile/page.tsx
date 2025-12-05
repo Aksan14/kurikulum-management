@@ -1,23 +1,24 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { 
   User,
   Mail,
   Phone,
-  MapPin,
-  Calendar,
-  Book,
-  Award,
+  School,
   Settings,
   Camera,
   Edit3,
   Save,
   X,
-  School,
-  Users,
   FileText,
-  Star
+  Star,
+  Target,
+  Loader2,
+  AlertCircle,
+  GraduationCap,
+  BookOpen
 } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,438 +26,357 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { mockUsers, mockRPS, mockAssignments } from "@/lib/mock-data"
-import { formatDate, getInitials } from "@/lib/utils"
+import { authService, rpsService } from "@/lib/api"
+import { getInitials } from "@/lib/utils"
+import Link from "next/link"
+
+interface UserData {
+  id: string
+  nama: string
+  email: string
+  role: string
+  phone?: string
+  avatar_url?: string
+}
 
 export default function DosenProfilePage() {
+  const router = useRouter()
   const [isEditing, setIsEditing] = useState(false)
-  const [activeTab, setActiveTab] = useState("profile")
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [currentUser, setCurrentUser] = useState<UserData | null>(null)
+  const [stats, setStats] = useState({
+    totalRPS: 0,
+    totalRPSDraft: 0,
+    totalRPSApproved: 0,
+    totalRPSSubmitted: 0,
+    totalMataKuliah: 0,
+  })
   
-  // Simulate current user (dosen-2)
-  const currentUser = mockUsers.find(u => u.id === "2")!
   const [profileData, setProfileData] = useState({
-    nama: currentUser.nama,
-    email: currentUser.email,
-    nip: "198501122015041002",
-    jabatan: "Lektor",
-    fakultas: "Fakultas Teknik",
-    prodi: "Teknik Informatika",
-    pendidikan: "S2 - Magister Teknik Informatika",
-    keahlian: "Machine Learning, Data Mining, Web Development",
-    telepon: "+62 812-3456-7890",
-    alamat: "Jl. Raya Universitas No. 123, Bandung",
-    bio: "Dosen dengan pengalaman 8 tahun di bidang teknologi informasi, fokus pada penelitian machine learning dan pengembangan kurikulum berbasis kompetensi."
+    nama: "",
+    phone: ""
   })
 
-  const dosenStats = {
-    totalRPS: mockRPS.filter(rps => rps.dosenId === dosenUser.id).length,
-    totalAssignments: mockAssignments.filter(a => a.dosenId === dosenUser.id).length,
-    pengalaman: "8 tahun",
-    publikasi: "15 jurnal"
-  }
+  const fetchData = useCallback(async () => {
+    if (!authService.isAuthenticated()) {
+      router.push('/login')
+      return
+    }
+    
+    try {
+      setLoading(true)
+      setError(null)
+      
+      const [userResponse, rpsResponse] = await Promise.all([
+        authService.getProfile(),
+        rpsService.getMy()
+      ])
+      
+      const userData = userResponse.data
+      setCurrentUser(userData as UserData)
+      
+      // Set profile data (only editable fields)
+      setProfileData({
+        nama: userData?.nama || "",
+        phone: userData?.phone || ""
+      })
+      
+      // Set stats from RPS data
+      const rpsList = rpsResponse.data?.data || []
+      setStats({
+        totalRPS: rpsList.length,
+        totalRPSDraft: rpsList.filter((r: { status: string }) => r.status === 'draft').length,
+        totalRPSApproved: rpsList.filter((r: { status: string }) => r.status === 'approved').length,
+        totalRPSSubmitted: rpsList.filter((r: { status: string }) => r.status === 'submitted').length,
+        totalMataKuliah: new Set(rpsList.map((r: { mata_kuliah_id: string }) => r.mata_kuliah_id)).size
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal memuat data')
+    } finally {
+      setLoading(false)
+    }
+  }, [router])
 
-  const handleSave = () => {
-    // Simulate API call
-    setIsEditing(false)
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      setError(null)
+      setSuccess(null)
+      
+      await authService.updateProfile({
+        nama: profileData.nama,
+        phone: profileData.phone
+      })
+      
+      setSuccess("Profil berhasil diperbarui")
+      setIsEditing(false)
+      
+      // Refresh data
+      fetchData()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menyimpan profil')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleCancel = () => {
-    // Reset form
-    setProfileData({
-      nama: currentUser.nama,
-      email: currentUser.email,
-      nip: "198501122015041002",
-      jabatan: "Lektor",
-      fakultas: "Fakultas Teknik",
-      prodi: "Teknik Informatika",
-      pendidikan: "S2 - Magister Teknik Informatika",
-      keahlian: "Machine Learning, Data Mining, Web Development",
-      telepon: "+62 812-3456-7890",
-      alamat: "Jl. Raya Universitas No. 123, Bandung",
-      bio: "Dosen dengan pengalaman 8 tahun di bidang teknologi informasi, fokus pada penelitian machine learning dan pengembangan kurikulum berbasis kompetensi."
-    })
+    // Reset form from currentUser
+    if (currentUser) {
+      setProfileData({
+        nama: currentUser.nama || "",
+        phone: currentUser.phone || ""
+      })
+    }
     setIsEditing(false)
+    setError(null)
   }
 
-  // Get dosen user (second user in mockUsers)
-  const dosenUser = mockUsers.find(user => user.role === 'dosen') || mockUsers[1]
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-muted-foreground">Memuat profil...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (error && !currentUser) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Card className="w-full max-w-md">
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center gap-4 text-center">
+                <AlertCircle className="h-12 w-12 text-red-500" />
+                <div>
+                  <h3 className="font-semibold text-lg">Terjadi Kesalahan</h3>
+                  <p className="text-muted-foreground">{error}</p>
+                </div>
+                <Button onClick={fetchData}>Coba Lagi</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </DashboardLayout>
+    )
+  }
 
   return (
-    <DashboardLayout user={{...dosenUser, role: 'dosen'}} unreadNotifications={2}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Profil Saya</h1>
-            <p className="text-gray-600 mt-1">Kelola informasi profil dan preferensi akun Anda</p>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">Profil Saya</h1>
+            <p className="text-slate-600 dark:text-slate-400">Kelola informasi profil dan akun Anda</p>
           </div>
-          <Button 
-            onClick={() => setIsEditing(!isEditing)}
-            className={isEditing ? "bg-gray-600 hover:bg-gray-700" : "bg-blue-600 hover:bg-blue-700"}
-          >
+          <div className="flex gap-2">
             {isEditing ? (
               <>
-                <X className="h-4 w-4 mr-2" />
-                Batal Edit
+                <Button variant="outline" onClick={handleCancel} disabled={saving}>
+                  <X className="mr-2 h-4 w-4" />
+                  Batal
+                </Button>
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
+                  Simpan
+                </Button>
               </>
             ) : (
               <>
-                <Edit3 className="h-4 w-4 mr-2" />
-                Edit Profil
+                <Button variant="outline" onClick={() => setIsEditing(true)}>
+                  <Edit3 className="mr-2 h-4 w-4" />
+                  Edit Profil
+                </Button>
+                <Link href="/dosen/settings">
+                  <Button variant="outline">
+                    <Settings className="mr-2 h-4 w-4" />
+                    Pengaturan
+                  </Button>
+                </Link>
               </>
             )}
-          </Button>
+          </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="bg-gray-100">
-            <TabsTrigger value="profile">Profil</TabsTrigger>
-            <TabsTrigger value="stats">Statistik</TabsTrigger>
-            <TabsTrigger value="activity">Aktivitas</TabsTrigger>
-          </TabsList>
+        {/* Alert Messages */}
+        {error && (
+          <Card className="border-red-200 bg-red-50">
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center gap-2 text-red-600">
+                <AlertCircle className="h-4 w-4" />
+                <span>{error}</span>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        
+        {success && (
+          <Card className="border-green-200 bg-green-50">
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center gap-2 text-green-600">
+                <Target className="h-4 w-4" />
+                <span>{success}</span>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-          <TabsContent value="profile" className="space-y-6">
-            {/* Profile Header */}
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex flex-col md:flex-row gap-6">
-                  <div className="flex-shrink-0">
-                    <div className="relative">
-                      <Avatar className="w-32 h-32">
-                        <AvatarFallback className="text-2xl bg-blue-100 text-blue-700">
-                          {getInitials(profileData.nama)}
-                        </AvatarFallback>
-                      </Avatar>
-                      {isEditing && (
-                        <Button 
-                          size="sm" 
-                          className="absolute -bottom-2 -right-2 rounded-full w-8 h-8 p-0"
-                        >
-                          <Camera className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
+        {/* Profile Card */}
+        <div className="grid gap-6 md:grid-cols-3">
+          {/* Left - Avatar & Quick Info */}
+          <Card className="md:col-span-1">
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center text-center">
+                <div className="relative">
+                  <Avatar className="h-32 w-32">
+                    <AvatarFallback className="text-2xl bg-primary/10">
+                      {getInitials(currentUser?.nama || "Dosen")}
+                    </AvatarFallback>
+                  </Avatar>
+                  {isEditing && (
+                    <Button 
+                      size="icon" 
+                      variant="secondary" 
+                      className="absolute bottom-0 right-0 rounded-full h-8 w-8"
+                      disabled
+                      title="Fitur upload foto belum tersedia"
+                    >
+                      <Camera className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                <h2 className="mt-4 text-xl font-semibold text-foreground">{currentUser?.nama}</h2>
+                <p className="text-slate-600 dark:text-slate-400">Dosen</p>
+                <Badge className="mt-2" variant="default">
+                  <GraduationCap className="mr-1 h-3 w-3" />
+                  Dosen
+                </Badge>
+                
+                <div className="w-full mt-6 pt-6 border-t space-y-3">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Mail className="h-4 w-4 text-slate-500" />
+                    <span className="truncate text-foreground">{currentUser?.email}</span>
                   </div>
-                  
-                  <div className="flex-1 space-y-4">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h2 className="text-2xl font-bold text-gray-900">{profileData.nama}</h2>
-                        <p className="text-gray-600">{profileData.jabatan}</p>
-                        <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                          <span className="flex items-center gap-1">
-                            <School className="h-4 w-4" />
-                            {profileData.prodi}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Calendar className="h-4 w-4" />
-                            NIP: {profileData.nip}
-                          </span>
-                        </div>
-                      </div>
-                      <Badge className="bg-green-100 text-green-700">
-                        <Star className="h-3 w-3 mr-1" />
-                        Aktif
-                      </Badge>
+                  {currentUser?.phone && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Phone className="h-4 w-4 text-slate-500" />
+                      <span className="text-foreground">{currentUser.phone}</span>
                     </div>
-                    
-                    <p className="text-gray-700 leading-relaxed">
-                      {profileData.bio}
-                    </p>
-                    
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="text-center p-3 bg-blue-50 rounded-lg">
-                        <p className="text-2xl font-bold text-blue-600">{dosenStats.totalRPS}</p>
-                        <p className="text-sm text-blue-700">RPS Dibuat</p>
-                      </div>
-                      <div className="text-center p-3 bg-green-50 rounded-lg">
-                        <p className="text-2xl font-bold text-green-600">{dosenStats.totalAssignments}</p>
-                        <p className="text-sm text-green-700">Penugasan CPL</p>
-                      </div>
-                      <div className="text-center p-3 bg-purple-50 rounded-lg">
-                        <p className="text-2xl font-bold text-purple-600">{dosenStats.pengalaman}</p>
-                        <p className="text-sm text-purple-700">Pengalaman</p>
-                      </div>
-                      <div className="text-center p-3 bg-orange-50 rounded-lg">
-                        <p className="text-2xl font-bold text-orange-600">{dosenStats.publikasi}</p>
-                        <p className="text-sm text-orange-700">Publikasi</p>
-                      </div>
-                    </div>
+                  )}
+                  <div className="flex items-center gap-2 text-sm">
+                    <School className="h-4 w-4 text-slate-500" />
+                    <span className="text-foreground">Teknik Informatika</span>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Right - Stats & Edit Form */}
+          <div className="md:col-span-2 space-y-6">
+            {/* Statistics */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <Card>
+                <CardContent className="pt-4 pb-4 text-center">
+                  <FileText className="h-6 w-6 mx-auto text-primary mb-2" />
+                  <p className="text-2xl font-bold text-foreground">{stats.totalRPS}</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">Total RPS</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4 pb-4 text-center">
+                  <Target className="h-6 w-6 mx-auto text-green-500 mb-2" />
+                  <p className="text-2xl font-bold text-foreground">{stats.totalRPSApproved}</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">Disetujui</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4 pb-4 text-center">
+                  <Star className="h-6 w-6 mx-auto text-amber-500 mb-2" />
+                  <p className="text-2xl font-bold text-foreground">{stats.totalRPSSubmitted}</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">Menunggu Review</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4 pb-4 text-center">
+                  <BookOpen className="h-6 w-6 mx-auto text-blue-500 mb-2" />
+                  <p className="text-2xl font-bold text-foreground">{stats.totalMataKuliah}</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">Mata Kuliah</p>
+                </CardContent>
+              </Card>
+            </div>
 
             {/* Profile Form */}
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Informasi Pribadi</CardTitle>
-                  <CardDescription>Data personal dan kontak</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="nama">Nama Lengkap</Label>
-                    <Input 
-                      id="nama"
-                      value={profileData.nama}
-                      onChange={(e) => setProfileData({...profileData, nama: e.target.value})}
-                      disabled={!isEditing}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input 
-                      id="email"
-                      type="email"
-                      value={profileData.email}
-                      onChange={(e) => setProfileData({...profileData, email: e.target.value})}
-                      disabled={!isEditing}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="telepon">Telepon</Label>
-                    <Input 
-                      id="telepon"
-                      value={profileData.telepon}
-                      onChange={(e) => setProfileData({...profileData, telepon: e.target.value})}
-                      disabled={!isEditing}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="alamat">Alamat</Label>
-                    <Textarea 
-                      id="alamat"
-                      value={profileData.alamat}
-                      onChange={(e) => setProfileData({...profileData, alamat: e.target.value})}
-                      disabled={!isEditing}
-                      rows={3}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Informasi Akademik</CardTitle>
-                  <CardDescription>Data kepegawaian dan akademik</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="nip">NIP</Label>
-                    <Input 
-                      id="nip"
-                      value={profileData.nip}
-                      onChange={(e) => setProfileData({...profileData, nip: e.target.value})}
-                      disabled={!isEditing}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="jabatan">Jabatan</Label>
-                    {isEditing ? (
-                      <Select value={profileData.jabatan} onValueChange={(value) => setProfileData({...profileData, jabatan: value})}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Asisten Ahli">Asisten Ahli</SelectItem>
-                          <SelectItem value="Lektor">Lektor</SelectItem>
-                          <SelectItem value="Lektor Kepala">Lektor Kepala</SelectItem>
-                          <SelectItem value="Guru Besar">Guru Besar</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Input value={profileData.jabatan} disabled />
-                    )}
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="fakultas">Fakultas</Label>
-                    <Input 
-                      id="fakultas"
-                      value={profileData.fakultas}
-                      onChange={(e) => setProfileData({...profileData, fakultas: e.target.value})}
-                      disabled={!isEditing}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="prodi">Program Studi</Label>
-                    <Input 
-                      id="prodi"
-                      value={profileData.prodi}
-                      onChange={(e) => setProfileData({...profileData, prodi: e.target.value})}
-                      disabled={!isEditing}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Additional Info */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Informasi Tambahan</CardTitle>
-                <CardDescription>Pendidikan dan keahlian</CardDescription>
+                <CardTitle className="text-lg flex items-center gap-2 text-foreground">
+                  <User className="h-5 w-5" />
+                  Informasi Profil
+                </CardTitle>
+                <CardDescription className="text-slate-600 dark:text-slate-400">Data pribadi dan kontak Anda</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="pendidikan">Pendidikan Terakhir</Label>
-                  <Input 
-                    id="pendidikan"
-                    value={profileData.pendidikan}
-                    onChange={(e) => setProfileData({...profileData, pendidikan: e.target.value})}
-                    disabled={!isEditing}
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="keahlian">Bidang Keahlian</Label>
-                  <Textarea 
-                    id="keahlian"
-                    value={profileData.keahlian}
-                    onChange={(e) => setProfileData({...profileData, keahlian: e.target.value})}
-                    disabled={!isEditing}
-                    rows={2}
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="bio">Bio/Deskripsi</Label>
-                  <Textarea 
-                    id="bio"
-                    value={profileData.bio}
-                    onChange={(e) => setProfileData({...profileData, bio: e.target.value})}
-                    disabled={!isEditing}
-                    rows={4}
-                  />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="nama" className="text-foreground font-medium">Nama Lengkap</Label>
+                    {isEditing ? (
+                      <Input
+                        id="nama"
+                        value={profileData.nama}
+                        onChange={(e) => setProfileData(prev => ({ ...prev, nama: e.target.value }))}
+                        placeholder="Masukkan nama lengkap"
+                      />
+                    ) : (
+                      <p className="text-sm p-2 bg-slate-100 dark:bg-slate-800 rounded-md text-foreground">{currentUser?.nama || "-"}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email" className="text-foreground font-medium">Email</Label>
+                    <p className="text-sm p-2 bg-slate-100 dark:bg-slate-800 rounded-md text-foreground">{currentUser?.email || "-"}</p>
+                    {isEditing && (
+                      <p className="text-xs text-slate-500">Email tidak dapat diubah</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone" className="text-foreground font-medium">Telepon</Label>
+                    {isEditing ? (
+                      <Input
+                        id="phone"
+                        value={profileData.phone}
+                        onChange={(e) => setProfileData(prev => ({ ...prev, phone: e.target.value }))}
+                        placeholder="Contoh: 08123456789"
+                      />
+                    ) : (
+                      <p className="text-sm p-2 bg-slate-100 dark:bg-slate-800 rounded-md text-foreground">{currentUser?.phone || "-"}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-foreground font-medium">Role</Label>
+                    <p className="text-sm p-2 bg-slate-100 dark:bg-slate-800 rounded-md capitalize text-foreground">{currentUser?.role || "-"}</p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
-
-            {/* Save/Cancel Buttons */}
-            {isEditing && (
-              <div className="flex justify-end gap-3">
-                <Button variant="outline" onClick={handleCancel}>
-                  <X className="h-4 w-4 mr-2" />
-                  Batal
-                </Button>
-                <Button onClick={handleSave} className="bg-green-600 hover:bg-green-700">
-                  <Save className="h-4 w-4 mr-2" />
-                  Simpan Perubahan
-                </Button>
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="stats" className="space-y-6">
-            <div className="grid gap-6 md:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <FileText className="h-5 w-5" />
-                    Statistik RPS
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Total RPS Dibuat</span>
-                      <span className="text-2xl font-bold text-blue-600">{dosenStats.totalRPS}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">RPS Disetujui</span>
-                      <span className="text-2xl font-bold text-green-600">
-                        {mockRPS.filter(rps => rps.dosenId === dosenUser.id && rps.status === "approved").length}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">RPS Pending</span>
-                      <span className="text-2xl font-bold text-yellow-600">
-                        {mockRPS.filter(rps => rps.dosenId === dosenUser.id && rps.status === "submitted").length}
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Users className="h-5 w-5" />
-                    Statistik Penugasan
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Total Penugasan</span>
-                      <span className="text-2xl font-bold text-purple-600">{dosenStats.totalAssignments}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Penugasan Diterima</span>
-                      <span className="text-2xl font-bold text-green-600">
-                        {mockAssignments.filter(a => a.dosenId === dosenUser.id && a.status === "accepted").length}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Penugasan Selesai</span>
-                      <span className="text-2xl font-bold text-blue-600">
-                        {mockAssignments.filter(a => a.dosenId === dosenUser.id && a.status === "done").length}
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="activity" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Aktivitas Terkini</CardTitle>
-                <CardDescription>Riwayat aktivitas dalam sistem kurikulum</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[
-                    { action: "Membuat RPS baru", item: "Struktur Data", date: "2024-01-20", type: "create" },
-                    { action: "Menerima penugasan CPL", item: "CPL-02: Kemampuan Analisis", date: "2024-01-18", type: "accept" },
-                    { action: "Memperbarui RPS", item: "Algoritma dan Pemrograman", date: "2024-01-15", type: "update" },
-                    { action: "Menyelesaikan RPS", item: "Database Management", date: "2024-01-10", type: "complete" }
-                  ].map((activity, index) => (
-                    <div key={index} className="flex items-start gap-4 p-3 border border-gray-200 rounded-lg">
-                      <div className={`p-2 rounded-lg ${
-                        activity.type === "create" ? "bg-blue-100" :
-                        activity.type === "accept" ? "bg-green-100" :
-                        activity.type === "update" ? "bg-yellow-100" :
-                        "bg-purple-100"
-                      }`}>
-                        {activity.type === "create" && <FileText className="h-4 w-4 text-blue-600" />}
-                        {activity.type === "accept" && <User className="h-4 w-4 text-green-600" />}
-                        {activity.type === "update" && <Edit3 className="h-4 w-4 text-yellow-600" />}
-                        {activity.type === "complete" && <Award className="h-4 w-4 text-purple-600" />}
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900">{activity.action}</p>
-                        <p className="text-sm text-gray-600">{activity.item}</p>
-                        <p className="text-xs text-gray-500 mt-1">{formatDate(activity.date)}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+          </div>
+        </div>
       </div>
     </DashboardLayout>
   )

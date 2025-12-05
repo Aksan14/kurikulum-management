@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { 
   Users,
   Settings,
@@ -28,7 +28,8 @@ import {
   FileText,
   Calendar,
   Mail,
-  Bell
+  Bell,
+  Loader2
 } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -39,19 +40,81 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
-import { mockUsers, mockCPLs, mockRPS } from "@/lib/mock-data"
+import { rpsService, RPS } from "@/lib/api/rps"
+import { cplService, CPL } from "@/lib/api/cpl"
 import { formatDate, getInitials } from "@/lib/utils"
+
+interface UserData {
+  id: string
+  nama: string
+  email: string
+  role: string
+  lastLogin?: string
+}
 
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState("overview")
   const [searchQuery, setSearchQuery] = useState("")
+  const [rpsList, setRpsList] = useState<RPS[]>([])
+  const [cplList, setCplList] = useState<CPL[]>([])
+  const [userList, setUserList] = useState<UserData[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   
-  // System statistics
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const [rpsRes, cplRes] = await Promise.all([
+        rpsService.getAll(),
+        cplService.getAll()
+      ])
+      const rpsData = rpsRes.data?.data || []
+      const cplData = cplRes.data?.data || []
+      setRpsList(rpsData)
+      setCplList(cplData)
+      
+      // Extract unique users from RPS data
+      const usersMap = new Map<string, UserData>()
+      rpsData.forEach((rps: RPS) => {
+        const dosenId = String(rps.dosen_id)
+        if (!usersMap.has(dosenId)) {
+          usersMap.set(dosenId, {
+            id: dosenId,
+            nama: rps.dosen_nama || `Dosen ${dosenId}`,
+            email: `-`,
+            role: 'dosen',
+            lastLogin: rps.updated_at
+          })
+        }
+      })
+      // Add a sample kaprodi
+      usersMap.set('kaprodi1', {
+        id: 'kaprodi1',
+        nama: 'Kaprodi',
+        email: 'kaprodi@university.ac.id',
+        role: 'kaprodi',
+        lastLogin: new Date().toISOString()
+      })
+      setUserList(Array.from(usersMap.values()))
+    } catch (err) {
+      console.error('Error fetching data:', err)
+      setError('Gagal memuat data')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  // System statistics from API data
   const stats = {
-    totalUsers: mockUsers.length,
-    activeUsers: mockUsers.filter(u => new Date().getTime() - new Date(u.lastLogin || "2024-01-01").getTime() < 7 * 24 * 60 * 60 * 1000).length,
-    totalCPL: mockCPLs.length,
-    totalRPS: mockRPS.length,
+    totalUsers: userList.length,
+    activeUsers: userList.length,
+    totalCPL: cplList.length,
+    totalRPS: rpsList.length,
     systemHealth: 98,
     storageUsed: 65,
     activeConnections: 24
@@ -65,6 +128,27 @@ export default function AdminDashboardPage() {
     { user: "System", action: "Backup otomatis selesai", timestamp: "2024-01-20 02:00", type: "system" },
     { user: "Dr. Linda Sari", action: "Export laporan", timestamp: "2024-01-19 16:20", type: "export" }
   ]
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-[60vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
+          <p className="text-red-600">{error}</p>
+          <Button onClick={fetchData}>Coba Lagi</Button>
+        </div>
+      </DashboardLayout>
+    )
+  }
 
   return (
     <DashboardLayout>
@@ -261,12 +345,12 @@ export default function AdminDashboardPage() {
                   </div>
                   <div className="text-center p-4 bg-purple-50 rounded-lg">
                     <Users className="h-8 w-8 text-purple-600 mx-auto mb-2" />
-                    <p className="text-2xl font-bold text-purple-900">{mockUsers.filter(u => u.role === "dosen").length}</p>
+                    <p className="text-2xl font-bold text-purple-900">{userList.filter((u: UserData) => u.role === 'dosen').length}</p>
                     <p className="text-sm text-purple-700">Dosen</p>
                   </div>
                   <div className="text-center p-4 bg-orange-50 rounded-lg">
                     <Shield className="h-8 w-8 text-orange-600 mx-auto mb-2" />
-                    <p className="text-2xl font-bold text-orange-900">{mockUsers.filter(u => u.role === "kaprodi").length}</p>
+                    <p className="text-2xl font-bold text-orange-900">{userList.filter((u: UserData) => u.role === 'kaprodi').length}</p>
                     <p className="text-sm text-orange-700">Kaprodi</p>
                   </div>
                 </div>
@@ -329,7 +413,7 @@ export default function AdminDashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {mockUsers.map((user) => (
+                      {userList.map((user: UserData) => (
                         <tr key={user.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="flex items-center gap-3">

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { DashboardLayout } from "@/components/layout"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -22,9 +22,14 @@ import {
   Info,
   Grid3X3,
   List,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Loader2,
+  Save,
+  AlertCircle
 } from "lucide-react"
-import { mockUsers, mockCPLs, mockRPS, mockMataKuliah } from "@/lib/mock-data"
+import { cplService, CPL } from "@/lib/api/cpl"
+import { mataKuliahService, MataKuliah } from "@/lib/api/mata-kuliah"
+import { cplMKMappingService, CPLMKMapping } from "@/lib/api/cpl-mk-mapping"
 import { cn } from "@/lib/utils"
 
 // Mapping level colors
@@ -35,44 +40,116 @@ const levelColors = {
   none: { bg: 'bg-slate-100', text: 'text-slate-400', label: '-' }
 }
 
-// Mock mapping data
-const mockMappingData = [
-  { mkId: 'mk1', cplId: '1', level: 'tinggi' },
-  { mkId: 'mk1', cplId: '3', level: 'sedang' },
-  { mkId: 'mk2', cplId: '3', level: 'tinggi' },
-  { mkId: 'mk2', cplId: '5', level: 'sedang' },
-  { mkId: 'mk2', cplId: '6', level: 'tinggi' },
-  { mkId: 'mk3', cplId: '1', level: 'sedang' },
-  { mkId: 'mk3', cplId: '3', level: 'rendah' },
-  { mkId: 'mk4', cplId: '2', level: 'sedang' },
-  { mkId: 'mk4', cplId: '5', level: 'tinggi' },
-  { mkId: 'mk5', cplId: '1', level: 'tinggi' },
-  { mkId: 'mk5', cplId: '3', level: 'tinggi' },
-  { mkId: 'mk6', cplId: '1', level: 'tinggi' },
-  { mkId: 'mk7', cplId: '1', level: 'tinggi' },
-  { mkId: 'mk7', cplId: '3', level: 'sedang' },
-  { mkId: 'mk8', cplId: '3', level: 'tinggi' },
-  { mkId: 'mk8', cplId: '6', level: 'sedang' },
-]
+interface MappingData {
+  id?: string
+  mkId: string
+  cplId: string
+  level: string
+}
 
 export default function MappingPage() {
-  const user = mockUsers[0]
   const [viewMode, setViewMode] = useState<'matrix' | 'list'>('matrix')
   const [filterSemester, setFilterSemester] = useState<string>('all')
+  const [cplList, setCplList] = useState<CPL[]>([])
+  const [mataKuliahList, setMataKuliahList] = useState<MataKuliah[]>([])
+  const [mappingData, setMappingData] = useState<MappingData[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  const publishedCPLs = mockCPLs.filter(cpl => cpl.status === 'published')
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      
+      const [cplRes, mkRes, mappingRes] = await Promise.all([
+        cplService.getAll({ limit: 100 }),
+        mataKuliahService.getAll({ limit: 100 }),
+        cplMKMappingService.getAll({ limit: 1000 })
+      ])
+      
+      console.log('CPL Response:', cplRes)
+      console.log('MK Response:', mkRes)
+      console.log('Mapping Response:', mappingRes)
+      
+      // Handle different response structures
+      let cplData: CPL[] = []
+      if (Array.isArray(cplRes.data)) {
+        cplData = cplRes.data
+      } else if (cplRes.data?.data && Array.isArray(cplRes.data.data)) {
+        cplData = cplRes.data.data
+      }
+      
+      let mkData: MataKuliah[] = []
+      if (Array.isArray(mkRes.data)) {
+        mkData = mkRes.data
+      } else if (mkRes.data?.data && Array.isArray(mkRes.data.data)) {
+        mkData = mkRes.data.data
+      }
+      
+      console.log('CPL Data:', cplData)
+      console.log('MK Data:', mkData)
+      
+      setCplList(cplData)
+      setMataKuliahList(mkData)
+      
+      // Transform API mapping data to local format
+      let apiMappings: CPLMKMapping[] = []
+      if (Array.isArray(mappingRes.data)) {
+        apiMappings = mappingRes.data
+      } else if (mappingRes.data?.data && Array.isArray(mappingRes.data.data)) {
+        apiMappings = mappingRes.data.data
+      }
+      
+      const transformedMappings: MappingData[] = apiMappings.map((m: CPLMKMapping) => ({
+        id: m.id,
+        mkId: m.mata_kuliah_id,
+        cplId: m.cpl_id,
+        level: m.level
+      }))
+      setMappingData(transformedMappings)
+      
+    } catch (err) {
+      console.error('Error fetching data:', err)
+      setError('Gagal memuat data mapping')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  // Clear save message after 3 seconds
+  useEffect(() => {
+    if (saveMessage) {
+      const timer = setTimeout(() => setSaveMessage(null), 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [saveMessage])
+
+  // Filter CPL - show published first, but show all if no published CPLs exist
+  const publishedCPLs = cplList.filter(cpl => cpl.status === 'published')
+  const displayCPLs = publishedCPLs.length > 0 ? publishedCPLs : cplList
   
   const filteredMK = filterSemester === 'all' 
-    ? mockMataKuliah 
-    : mockMataKuliah.filter(mk => mk.semester === Number(filterSemester))
+    ? mataKuliahList 
+    : mataKuliahList.filter(mk => mk.semester === Number(filterSemester))
 
   const getMapping = (mkId: string, cplId: string) => {
-    const mapping = mockMappingData.find(m => m.mkId === mkId && m.cplId === cplId)
+    const mapping = mappingData.find(m => m.mkId === mkId && m.cplId === cplId)
     return mapping?.level || 'none'
   }
 
+  const getMappingId = (mkId: string, cplId: string) => {
+    const mapping = mappingData.find(m => m.mkId === mkId && m.cplId === cplId)
+    return mapping?.id
+  }
+
   const getCPLStats = (cplId: string) => {
-    const mappings = mockMappingData.filter(m => m.cplId === cplId)
+    const mappings = mappingData.filter(m => m.cplId === cplId)
     return {
       total: mappings.length,
       tinggi: mappings.filter(m => m.level === 'tinggi').length,
@@ -81,9 +158,121 @@ export default function MappingPage() {
     }
   }
 
+  // Handle mapping level change - cycle through: none -> tinggi -> sedang -> rendah -> none
+  // Saves directly to API
+  const handleMappingClick = async (mkId: string, cplId: string) => {
+    const currentLevel = getMapping(mkId, cplId)
+    const existingId = getMappingId(mkId, cplId)
+    
+    const levelCycle: Record<string, string> = {
+      'none': 'tinggi',
+      'tinggi': 'sedang', 
+      'sedang': 'rendah',
+      'rendah': 'none'
+    }
+    const newLevel = levelCycle[currentLevel] || 'tinggi'
+    
+    setSaving(true)
+    setSaveMessage(null)
+    
+    try {
+      if (newLevel === 'none') {
+        // Delete mapping from API
+        if (existingId) {
+          await cplMKMappingService.delete(existingId)
+        } else {
+          // Try delete by pair if no ID
+          await cplMKMappingService.deleteByPair(cplId, mkId)
+        }
+        
+        // Update local state
+        setMappingData(prev => prev.filter(m => !(m.mkId === mkId && m.cplId === cplId)))
+        setSaveMessage({ type: 'success', text: 'Mapping dihapus' })
+      } else {
+        // Create or update mapping via upsert
+        const response = await cplMKMappingService.upsert({
+          cpl_id: cplId,
+          mata_kuliah_id: mkId,
+          level: newLevel as 'tinggi' | 'sedang' | 'rendah'
+        })
+        
+        if (response.success && response.data) {
+          // Update local state with response data
+          setMappingData(prev => {
+            const existingIndex = prev.findIndex(m => m.mkId === mkId && m.cplId === cplId)
+            const newMapping: MappingData = {
+              id: response.data.id,
+              mkId,
+              cplId,
+              level: newLevel
+            }
+            
+            if (existingIndex >= 0) {
+              const updated = [...prev]
+              updated[existingIndex] = newMapping
+              return updated
+            } else {
+              return [...prev, newMapping]
+            }
+          })
+          setSaveMessage({ type: 'success', text: `Level diubah ke ${newLevel.toUpperCase()}` })
+        }
+      }
+    } catch (err) {
+      console.error('Error saving mapping:', err)
+      setSaveMessage({ type: 'error', text: 'Gagal menyimpan mapping' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-[60vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
+          <p className="text-red-600">{error}</p>
+          <Button onClick={fetchData}>Coba Lagi</Button>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
   return (
-    <DashboardLayout user={user} unreadNotifications={3}>
+    <DashboardLayout>
       <div className="space-y-6">
+        {/* Save Status Notification */}
+        {saveMessage && (
+          <div className={cn(
+            "fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg px-4 py-3 shadow-lg transition-all",
+            saveMessage.type === 'success' ? "bg-green-100 text-green-800 border border-green-200" : "bg-red-100 text-red-800 border border-red-200"
+          )}>
+            {saveMessage.type === 'success' ? (
+              <CheckCircle className="h-4 w-4" />
+            ) : (
+              <AlertCircle className="h-4 w-4" />
+            )}
+            <span className="text-sm font-medium">{saveMessage.text}</span>
+          </div>
+        )}
+
+        {/* Saving Indicator */}
+        {saving && (
+          <div className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded-lg bg-blue-100 border border-blue-200 px-4 py-3 shadow-lg">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+            <span className="text-sm font-medium text-blue-800">Menyimpan...</span>
+          </div>
+        )}
+
         {/* Page Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -180,11 +369,11 @@ export default function MappingPage() {
                       <th className="sticky left-0 z-10 bg-white border border-slate-200 p-3 text-left min-w-[200px]">
                         <span className="text-sm font-semibold text-slate-700">Mata Kuliah</span>
                       </th>
-                      {publishedCPLs.map((cpl) => (
+                      {displayCPLs.map((cpl) => (
                         <th key={cpl.id} className="border border-slate-200 p-2 text-center min-w-[80px]">
                           <div className="flex flex-col items-center gap-1">
                             <span className="text-xs font-mono font-bold text-blue-600">{cpl.kode}</span>
-                            <span className="text-[10px] text-slate-500 line-clamp-2">{cpl.judul}</span>
+                            <span className="text-[10px] text-slate-500 line-clamp-2">{cpl.nama}</span>
                           </div>
                         </th>
                       ))}
@@ -204,7 +393,7 @@ export default function MappingPage() {
                             <p className="text-sm font-medium text-slate-900">{mk.nama}</p>
                           </div>
                         </td>
-                        {publishedCPLs.map((cpl) => {
+                        {displayCPLs.map((cpl) => {
                           const level = getMapping(mk.id, cpl.id) as keyof typeof levelColors
                           const colors = levelColors[level]
                           
@@ -212,14 +401,16 @@ export default function MappingPage() {
                             <td 
                               key={cpl.id} 
                               className="border border-slate-200 p-1 text-center cursor-pointer hover:opacity-80 transition-opacity"
+                              onClick={() => handleMappingClick(mk.id, cpl.id)}
+                              title={`Klik untuk mengubah: ${mk.kode} → ${cpl.kode}`}
                             >
                               <div 
                                 className={cn(
-                                  "mx-auto flex h-10 w-10 items-center justify-center rounded-lg text-xs font-bold",
+                                  "mx-auto flex h-10 w-10 items-center justify-center rounded-lg text-xs font-bold transition-all hover:scale-105",
                                   colors.bg, colors.text
                                 )}
                               >
-                                {level === 'tinggi' ? 'T' : level === 'sedang' ? 'S' : level === 'rendah' ? 'R' : ''}
+                                {level === 'tinggi' ? 'T' : level === 'sedang' ? 'S' : level === 'rendah' ? 'R' : '-'}
                               </div>
                             </td>
                           )
@@ -243,9 +434,9 @@ export default function MappingPage() {
                 <CardDescription>Jumlah mata kuliah yang mendukung setiap CPL</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {publishedCPLs.map((cpl) => {
+                {displayCPLs.map((cpl) => {
                   const stats = getCPLStats(cpl.id)
-                  const coverage = (stats.total / mockMataKuliah.length) * 100
+                  const coverage = (stats.total / mataKuliahList.length) * 100
                   
                   return (
                     <div key={cpl.id} className="rounded-lg border border-slate-200 p-4">
@@ -253,9 +444,9 @@ export default function MappingPage() {
                         <div>
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-sm font-bold text-blue-600">{cpl.kode}</span>
-                            <Badge variant="outline">{cpl.aspek}</Badge>
+                            <Badge variant="outline">{cpl.status}</Badge>
                           </div>
-                          <p className="mt-1 text-sm text-slate-700">{cpl.judul}</p>
+                          <p className="mt-1 text-sm text-slate-700">{cpl.nama}</p>
                         </div>
                         <div className="text-right">
                           <span className="text-2xl font-bold text-slate-900">{stats.total}</span>
@@ -266,15 +457,15 @@ export default function MappingPage() {
                         <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
                           <div 
                             className="bg-emerald-500" 
-                            style={{ width: `${(stats.tinggi / mockMataKuliah.length) * 100}%` }} 
+                            style={{ width: `${(stats.tinggi / mataKuliahList.length) * 100}%` }} 
                           />
                           <div 
                             className="bg-amber-400" 
-                            style={{ width: `${(stats.sedang / mockMataKuliah.length) * 100}%` }} 
+                            style={{ width: `${(stats.sedang / mataKuliahList.length) * 100}%` }} 
                           />
                           <div 
                             className="bg-blue-400" 
-                            style={{ width: `${(stats.rendah / mockMataKuliah.length) * 100}%` }} 
+                            style={{ width: `${(stats.rendah / mataKuliahList.length) * 100}%` }} 
                           />
                         </div>
                         <div className="mt-2 flex gap-4 text-xs text-slate-500">
@@ -297,7 +488,7 @@ export default function MappingPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 {filteredMK.map((mk) => {
-                  const mappings = mockMappingData.filter(m => m.mkId === mk.id)
+                  const mappings = mappingData.filter(m => m.mkId === mk.id)
                   
                   return (
                     <div key={mk.id} className="rounded-lg border border-slate-200 p-3">
@@ -314,7 +505,7 @@ export default function MappingPage() {
                       {mappings.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-1">
                           {mappings.map((m) => {
-                            const cpl = publishedCPLs.find(c => c.id === m.cplId)
+                            const cpl = displayCPLs.find(c => c.id === m.cplId)
                             const level = m.level as keyof typeof levelColors
                             
                             return (
@@ -347,15 +538,15 @@ export default function MappingPage() {
           <Card className="border-blue-200 bg-blue-50">
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-3xl font-bold text-blue-900">{publishedCPLs.length}</p>
-                <p className="text-sm text-blue-700">Total CPL Published</p>
+                <p className="text-3xl font-bold text-blue-900">{displayCPLs.length}</p>
+                <p className="text-sm text-blue-700">Total CPL</p>
               </div>
             </CardContent>
           </Card>
           <Card className="border-emerald-200 bg-emerald-50">
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-3xl font-bold text-emerald-900">{mockMataKuliah.length}</p>
+                <p className="text-3xl font-bold text-emerald-900">{mataKuliahList.length}</p>
                 <p className="text-sm text-emerald-700">Total Mata Kuliah</p>
               </div>
             </CardContent>
@@ -363,7 +554,7 @@ export default function MappingPage() {
           <Card className="border-amber-200 bg-amber-50">
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-3xl font-bold text-amber-900">{mockMappingData.length}</p>
+                <p className="text-3xl font-bold text-amber-900">{mappingData.length}</p>
                 <p className="text-sm text-amber-700">Total Mapping</p>
               </div>
             </CardContent>
@@ -372,7 +563,9 @@ export default function MappingPage() {
             <CardContent className="pt-6">
               <div className="text-center">
                 <p className="text-3xl font-bold text-purple-900">
-                  {((mockMappingData.length / (publishedCPLs.length * mockMataKuliah.length)) * 100).toFixed(0)}%
+                  {displayCPLs.length > 0 && mataKuliahList.length > 0 
+                    ? ((mappingData.length / (displayCPLs.length * mataKuliahList.length)) * 100).toFixed(0)
+                    : 0}%
                 </p>
                 <p className="text-sm text-purple-700">Coverage Rate</p>
               </div>

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { 
   BarChart3,
   TrendingUp,
@@ -15,7 +15,9 @@ import {
   Activity,
   CheckSquare,
   Clock,
-  Award
+  Award,
+  Loader2,
+  AlertCircle
 } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,48 +25,83 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { mockRPS, mockCPLs, mockAssignments, mockUsers } from "@/lib/mock-data"
+import { rpsService, cplService } from "@/lib/api"
+import type { RPS } from "@/lib/api/rps"
+import type { CPL } from "@/lib/api/cpl"
 import { formatDate } from "@/lib/utils"
 
 export default function DosenReportPage() {
   const [selectedPeriod, setSelectedPeriod] = useState("2024/2025")
   const [selectedSemester, setSelectedSemester] = useState("all")
   const [activeTab, setActiveTab] = useState("overview")
+  
+  const [rpsList, setRpsList] = useState<RPS[]>([])
+  const [cplList, setCplList] = useState<CPL[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Filter data for current dosen
-  const dosenAssignments = mockAssignments.filter(a => a.dosenId === dosenUser.id)
-  const dosenRPS = mockRPS.filter(rps => rps.dosenId === dosenUser.id)
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const [rpsResponse, cplResponse] = await Promise.all([
+        rpsService.getMy(),
+        cplService.getAll({ limit: 100 })
+      ])
+      setRpsList(rpsResponse.data?.data || [])
+      setCplList(cplResponse.data?.data || [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal memuat data')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
 
   const stats = {
-    totalCPL: dosenAssignments.length,
-    activeMataKuliah: dosenRPS.length,
-    completedRPS: dosenRPS.filter(rps => rps.status === "approved").length,
-    pendingRPS: dosenRPS.filter(rps => rps.status === "submitted").length
+    totalCPL: cplList.length,
+    activeMataKuliah: rpsList.length,
+    completedRPS: rpsList.filter(rps => rps.status === "approved").length,
+    pendingRPS: rpsList.filter(rps => rps.status === "submitted").length
   }
 
-  const cplProgress = mockCPLs.map(cpl => {
-    const assignment = dosenAssignments.find(a => a.cplId === cpl.id)
-    const rps = assignment ? dosenRPS.find(r => r.mataKuliahId === assignment.mataKuliah) : null
-    
-    return {
-      ...cpl,
-      status: assignment ? assignment.status : "not-assigned",
-      rpsStatus: rps ? rps.status : null,
-      mataKuliah: assignment ? assignment.mataKuliah : null
-    }
-  }).filter(cpl => cpl.status !== "not-assigned")
-
   const chartData = [
-    { name: "CPL Ditugaskan", value: dosenAssignments.length, color: "bg-blue-500" },
+    { name: "RPS Total", value: rpsList.length, color: "bg-blue-500" },
     { name: "RPS Selesai", value: stats.completedRPS, color: "bg-green-500" },
     { name: "RPS Pending", value: stats.pendingRPS, color: "bg-yellow-500" },
   ]
 
-  // Get dosen user (second user in mockUsers)
-  const dosenUser = mockUsers.find(user => user.role === 'dosen') || mockUsers[1]
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-96 items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-green-600" />
+          <span className="ml-2 text-slate-600">Memuat data laporan...</span>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-96 flex-col items-center justify-center">
+          <AlertCircle className="h-12 w-12 text-red-500 mb-4" />
+          <p className="text-lg font-medium text-slate-900">Gagal Memuat Data</p>
+          <p className="text-slate-600">{error}</p>
+          <Button className="mt-4" onClick={fetchData}>
+            Coba Lagi
+          </Button>
+        </div>
+      </DashboardLayout>
+    )
+  }
 
   return (
-    <DashboardLayout user={{...dosenUser, role: 'dosen'}} unreadNotifications={2}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -239,15 +276,15 @@ export default function DosenReportPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {dosenRPS.slice(0, 5).map((rps) => (
+                  {rpsList.slice(0, 5).map((rps) => (
                     <div key={rps.id} className="flex items-start gap-4 p-3 border border-gray-200 rounded-lg">
                       <div className="bg-blue-100 p-2 rounded-lg">
                         <FileText className="h-4 w-4 text-blue-600" />
                       </div>
                       <div className="flex-1">
-                        <p className="font-medium text-gray-900">RPS - {rps.mataKuliahId}</p>
+                        <p className="font-medium text-gray-900">RPS - {rps.mata_kuliah_nama}</p>
                         <p className="text-sm text-gray-600">RPS {rps.status === "approved" ? "disetujui" : "menunggu review"}</p>
-                        <p className="text-xs text-gray-500 mt-1">{formatDate(rps.createdAt)}</p>
+                        <p className="text-xs text-gray-500 mt-1">{formatDate(rps.created_at)}</p>
                       </div>
                       <Badge className={
                         rps.status === "approved" 
@@ -273,26 +310,21 @@ export default function DosenReportPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {cplProgress.map((cpl) => (
+                  {cplList.map((cpl) => (
                     <div key={cpl.id} className="border border-gray-200 rounded-lg p-4">
                       <div className="flex items-start justify-between mb-3">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
                             <Badge className="bg-blue-600 text-white">{cpl.kode}</Badge>
-                            {cpl.status === "done" && (
+                            {cpl.status === "published" && (
                               <Badge className="bg-green-100 text-green-700">
                                 <Award className="h-3 w-3 mr-1" />
-                                Selesai
+                                Published
                               </Badge>
                             )}
                           </div>
-                          <h3 className="font-medium text-gray-900">{cpl.judul}</h3>
+                          <h3 className="font-medium text-gray-900">{cpl.nama}</h3>
                           <p className="text-sm text-gray-600 mt-1">{cpl.deskripsi}</p>
-                          {cpl.mataKuliah && (
-                            <p className="text-sm font-medium text-blue-600 mt-2">
-                              Mata Kuliah: {cpl.mataKuliah}
-                            </p>
-                          )}
                         </div>
                       </div>
                       
@@ -300,23 +332,23 @@ export default function DosenReportPage() {
                         <div className="flex-1">
                           <div className="flex justify-between text-sm mb-1">
                             <span>Progress</span>
-                            <span>{cpl.rpsStatus === "approved" ? "100%" : cpl.rpsStatus === "submitted" ? "80%" : "0%"}</span>
+                            <span>{cpl.status === "published" ? "100%" : cpl.status === "draft" ? "50%" : "0%"}</span>
                           </div>
                           <div className="w-full bg-gray-200 rounded-full h-2">
                             <div 
                               className={`h-2 rounded-full ${
-                                cpl.rpsStatus === "approved" 
+                                cpl.status === "published" 
                                   ? "bg-green-500" 
-                                  : cpl.rpsStatus === "submitted" 
+                                  : cpl.status === "draft" 
                                     ? "bg-yellow-500" 
                                     : "bg-gray-300"
                               }`}
                               style={{ 
                                 width: `${
-                                  cpl.rpsStatus === "approved" 
+                                  cpl.status === "published" 
                                     ? "100" 
-                                    : cpl.rpsStatus === "submitted" 
-                                      ? "80" 
+                                    : cpl.status === "draft" 
+                                      ? "50" 
                                       : "0"
                                 }%` 
                               }}
@@ -324,10 +356,10 @@ export default function DosenReportPage() {
                           </div>
                         </div>
                         
-                        {cpl.rpsStatus && (
+                        {cpl.status && (
                           <Button variant="outline" size="sm">
                             <FileText className="h-4 w-4 mr-2" />
-                            Lihat RPS
+                            Detail
                           </Button>
                         )}
                       </div>
@@ -348,11 +380,11 @@ export default function DosenReportPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
-                  {dosenRPS.map((rps) => (
+                  {rpsList.map((rps) => (
                     <div key={rps.id} className="border border-gray-200 rounded-lg p-6">
                       <div className="flex items-start justify-between mb-4">
                         <div>
-                          <h3 className="text-lg font-semibold text-gray-900">{rps.mataKuliahId}</h3>
+                          <h3 className="text-lg font-semibold text-gray-900">{rps.mata_kuliah_nama}</h3>
                           <p className="text-gray-600">RPS - {rps.semester} SKS</p>
                         </div>
                         <Badge className={
@@ -383,8 +415,8 @@ export default function DosenReportPage() {
                       
                       <div className="mt-4 pt-4 border-t border-gray-200">
                         <div className="flex items-center justify-between text-sm text-gray-500">
-                          <span>Dibuat: {formatDate(rps.createdAt)}</span>
-                          <span>Diperbarui: {formatDate(rps.updatedAt)}</span>
+                          <span>Dibuat: {formatDate(rps.created_at)}</span>
+                          <span>Diperbarui: {formatDate(rps.updated_at)}</span>
                         </div>
                       </div>
                     </div>

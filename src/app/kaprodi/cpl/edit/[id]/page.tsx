@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { 
   ArrowLeft,
@@ -9,7 +9,10 @@ import {
   X,
   Plus,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  Loader2,
+  RefreshCw,
+  AlertTriangle
 } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -19,40 +22,125 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Select } from "@/components/ui/select"
-import { mockCPLs } from "@/lib/mock-data"
+import { useAuth } from "@/contexts/AuthContext"
+import { cplService, CPL as ApiCPL, UpdateCPLRequest } from "@/lib/api/cpl"
+
+interface DisplayCPL {
+  id: string;
+  kode: string;
+  nama: string;
+  deskripsi: string;
+  status: 'draft' | 'published' | 'archived';
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export default function EditCPLPage() {
   const params = useParams()
   const router = useRouter()
+  const { user: authUser } = useAuth()
   const cplId = params.id as string
   
-  const existingCPL = mockCPLs.find(c => c.id === cplId)
+  // State for CPL data
+  const [existingCPL, setExistingCPL] = useState<DisplayCPL | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   
   const [formData, setFormData] = useState({
-    kode: existingCPL?.kode || "",
-    judul: existingCPL?.judul || "",
-    deskripsi: existingCPL?.deskripsi || "",
-    aspek: existingCPL?.aspek || "pengetahuan",
-    kategori: existingCPL?.kategori || "Kompetensi Utama"
+    kode: "",
+    nama: "",
+    deskripsi: ""
   })
 
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [isSaving, setIsSaving] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // Fetch CPL data
+  useEffect(() => {
+    const fetchCPL = async () => {
+      // Check authentication first
+      const { authService } = await import('@/lib/api/auth')
+      if (!authService.isAuthenticated()) {
+        router.push('/login')
+        return
+      }
+      
+      setLoading(true)
+      setLoadError(null)
+      try {
+        const response = await cplService.getById(cplId)
+        if (response.success && response.data) {
+          const cpl: DisplayCPL = {
+            id: response.data.id,
+            kode: response.data.kode,
+            nama: response.data.nama,
+            deskripsi: response.data.deskripsi,
+            status: response.data.status,
+            version: response.data.version,
+            createdAt: response.data.created_at,
+            updatedAt: response.data.updated_at
+          }
+          setExistingCPL(cpl)
+          setFormData({
+            kode: cpl.kode,
+            nama: cpl.nama,
+            deskripsi: cpl.deskripsi
+          })
+        } else {
+          setLoadError('CPL tidak ditemukan')
+        }
+      } catch (err) {
+        console.error('Error fetching CPL:', err)
+        setLoadError('Gagal memuat data CPL. Pastikan server API berjalan.')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    if (cplId) {
+      fetchCPL()
+    }
+  }, [cplId])
+
+  // Clear error when user starts typing
+  const handleInputChange = (field: string, value: string) => {
+    setFormData({ ...formData, [field]: value })
+    // Clear error for this field when user starts typing
+    if (errors[field]) {
+      setErrors({ ...errors, [field]: '' })
+    }
+  }
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {}
 
+    // Kode CPL validation
     if (!formData.kode.trim()) {
       newErrors.kode = "Kode CPL wajib diisi"
+    } else if (formData.kode.trim().length < 2) {
+      newErrors.kode = "Kode CPL minimal 2 karakter, contoh: CPL-01"
+    } else if (!/^[A-Za-z0-9\-]+$/.test(formData.kode.trim())) {
+      newErrors.kode = "Kode CPL hanya boleh berisi huruf, angka, dan tanda hubung (-)"
     }
-    if (!formData.judul.trim()) {
-      newErrors.judul = "Judul CPL wajib diisi"
+
+    // Nama CPL validation
+    if (!formData.nama.trim()) {
+      newErrors.nama = "Nama CPL wajib diisi"
+    } else if (formData.nama.trim().length < 3) {
+      newErrors.nama = "Nama CPL minimal 3 karakter, contoh: Mampu menganalisis masalah"
+    } else if (/^[\-\s]+$/.test(formData.nama.trim())) {
+      newErrors.nama = "Nama CPL harus berisi teks yang valid"
     }
+
+    // Deskripsi validation
     if (!formData.deskripsi.trim()) {
       newErrors.deskripsi = "Deskripsi CPL wajib diisi"
-    }
-    if (formData.deskripsi.length < 50) {
-      newErrors.deskripsi = "Deskripsi minimal 50 karakter"
+    } else if (formData.deskripsi.trim().length < 10) {
+      newErrors.deskripsi = "Deskripsi CPL minimal 10 karakter untuk menjelaskan capaian pembelajaran"
+    } else if (/^[\-\s]+$/.test(formData.deskripsi.trim())) {
+      newErrors.deskripsi = "Deskripsi harus berisi penjelasan yang valid"
     }
 
     setErrors(newErrors)
@@ -62,16 +150,74 @@ export default function EditCPLPage() {
   const handleSave = async (isDraft = false) => {
     if (!validateForm()) return
 
+    // Check authentication
+    const { authService } = await import('@/lib/api/auth')
+    if (!authService.isAuthenticated()) {
+      router.push('/login')
+      return
+    }
+
     setIsSaving(true)
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    setIsSaving(false)
+    setSubmitError(null)
     
-    // Simulate save success
-    router.push(`/kaprodi/cpl/${cplId}`)
+    try {
+      const updateData: UpdateCPLRequest = {
+        kode: formData.kode.trim(),
+        nama: formData.nama.trim(),
+        deskripsi: formData.deskripsi.trim()
+      }
+
+      const response = await cplService.update(cplId, updateData)
+      
+      if (response.success) {
+        router.push(`/kaprodi/cpl/${cplId}`)
+      } else {
+        // Parse error message from API
+        const errorMsg = response.message || response.error || 'Gagal menyimpan perubahan'
+        setSubmitError(errorMsg)
+      }
+    } catch (err: unknown) {
+      console.error('Error updating CPL:', err)
+      // Handle different error types
+      if (err && typeof err === 'object' && 'message' in err) {
+        const errorObj = err as { message: string; data?: { message?: string } }
+        setSubmitError(errorObj.data?.message || errorObj.message || 'Terjadi kesalahan saat menyimpan')
+      } else {
+        setSubmitError('Terjadi kesalahan saat menyimpan. Pastikan data yang diisi valid.')
+      }
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleCancel = () => {
     router.back()
+  }
+
+  // Loading state
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  // Error state
+  if (loadError || !existingCPL) {
+    return (
+      <DashboardLayout>
+        <div className="flex flex-col items-center justify-center min-h-[400px]">
+          <AlertCircle className="h-12 w-12 text-red-500" />
+          <h3 className="mt-4 text-lg font-medium text-gray-900">{loadError || 'CPL tidak ditemukan'}</h3>
+          <Button className="mt-4" onClick={() => router.push('/kaprodi/cpl')}>
+            Kembali ke Daftar CPL
+          </Button>
+        </div>
+      </DashboardLayout>
+    )
   }
 
   return (
@@ -124,75 +270,55 @@ export default function EditCPLPage() {
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Main Form */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Submit Error Alert */}
+            {submitError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-medium text-red-800">Gagal Menyimpan</h4>
+                  <p className="text-sm text-red-700 mt-1">{submitError}</p>
+                </div>
+              </div>
+            )}
+            
             <Card>
               <CardHeader>
                 <CardTitle>Informasi Dasar</CardTitle>
                 <CardDescription>Informasi utama CPL</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="grid gap-6 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="kode">Kode CPL *</Label>
-                    <Input
-                      id="kode"
-                      value={formData.kode}
-                      onChange={(e) => setFormData({ ...formData, kode: e.target.value })}
-                      placeholder="CPL-01"
-                      className={errors.kode ? "border-red-500" : ""}
-                    />
-                    {errors.kode && (
-                      <p className="text-sm text-red-500 flex items-center gap-1">
-                        <AlertCircle className="h-3 w-3" />
-                        {errors.kode}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="kategori">Kategori *</Label>
-                    <select
-                      id="kategori"
-                      value={formData.kategori}
-                      onChange={(e) => setFormData({ ...formData, kategori: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="Kompetensi Utama">Kompetensi Utama</option>
-                      <option value="Kompetensi Pendukung">Kompetensi Pendukung</option>
-                      <option value="Kompetensi Lainnya">Kompetensi Lainnya</option>
-                    </select>
-                  </div>
-                </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor="judul">Judul CPL *</Label>
+                  <Label htmlFor="kode">Kode CPL *</Label>
                   <Input
-                    id="judul"
-                    value={formData.judul}
-                    onChange={(e) => setFormData({ ...formData, judul: e.target.value })}
-                    placeholder="Kemampuan Berpikir Kritis"
-                    className={errors.judul ? "border-red-500" : ""}
+                    id="kode"
+                    value={formData.kode}
+                    onChange={(e) => handleInputChange('kode', e.target.value)}
+                    placeholder="CPL-01"
+                    className={errors.kode ? "border-red-500" : ""}
                   />
-                  {errors.judul && (
+                  {errors.kode && (
                     <p className="text-sm text-red-500 flex items-center gap-1">
                       <AlertCircle className="h-3 w-3" />
-                      {errors.judul}
+                      {errors.kode}
                     </p>
                   )}
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="aspek">Aspek CPL *</Label>
-                  <select
-                    id="aspek"
-                    value={formData.aspek}
-                    onChange={(e) => setFormData({ ...formData, aspek: e.target.value as "pengetahuan" | "keterampilan_umum" | "keterampilan_khusus" | "sikap" })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="pengetahuan">Pengetahuan</option>
-                    <option value="keterampilan_umum">Keterampilan Umum</option>
-                    <option value="keterampilan_khusus">Keterampilan Khusus</option>
-                    <option value="sikap">Sikap</option>
-                  </select>
+                  <Label htmlFor="nama">Nama CPL *</Label>
+                  <Input
+                    id="nama"
+                    value={formData.nama}
+                    onChange={(e) => handleInputChange('nama', e.target.value)}
+                    placeholder="Mampu merancang dan mengembangkan sistem informasi"
+                    className={errors.nama ? "border-red-500" : ""}
+                  />
+                  {errors.nama && (
+                    <p className="text-sm text-red-500 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {errors.nama}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -200,14 +326,14 @@ export default function EditCPLPage() {
                   <Textarea
                     id="deskripsi"
                     value={formData.deskripsi}
-                    onChange={(e) => setFormData({ ...formData, deskripsi: e.target.value })}
+                    onChange={(e) => handleInputChange('deskripsi', e.target.value)}
                     placeholder="Mampu menerapkan pemikiran logis, kritis, sistematis, dan inovatif dalam konteks pengembangan atau implementasi ilmu pengetahuan dan teknologi..."
                     rows={6}
                     className={errors.deskripsi ? "border-red-500" : ""}
                   />
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-gray-500">
-                      {formData.deskripsi.length}/500 karakter (minimal 50)
+                      {formData.deskripsi.length}/500 karakter (minimal 10)
                     </span>
                     {errors.deskripsi && (
                       <p className="text-sm text-red-500 flex items-center gap-1">

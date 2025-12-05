@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -42,12 +43,12 @@ import {
   Send,
   FileText,
   AlertCircle,
-  MessageSquare
+  MessageSquare,
+  Loader2
 } from "lucide-react"
-import { mockUsers, mockRPS } from "@/lib/mock-data"
+import { rpsService, RPS, authService } from "@/lib/api"
 import { cn, formatDateTime } from "@/lib/utils"
 import Link from "next/link"
-import { RPS } from "@/types"
 
 const statusConfig = {
   draft: { label: 'Draft', variant: 'default' as const, icon: Clock, color: 'text-slate-600 bg-slate-100' },
@@ -58,7 +59,10 @@ const statusConfig = {
 }
 
 export default function KaprodiRPSPage() {
-  const user = mockUsers[0]
+  const router = useRouter()
+  const [rpsList, setRpsList] = useState<RPS[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [activeTab, setActiveTab] = useState('all')
@@ -66,11 +70,39 @@ export default function KaprodiRPSPage() {
   const [selectedRPS, setSelectedRPS] = useState<RPS | null>(null)
   const [reviewAction, setReviewAction] = useState<'approve' | 'reject'>('approve')
   const [reviewNotes, setReviewNotes] = useState('')
+  const [isReviewing, setIsReviewing] = useState(false)
 
-  const pendingRPS = mockRPS.filter(rps => rps.status === 'submitted')
+  const fetchRPS = useCallback(async () => {
+    // Check if user is authenticated
+    if (!authService.isAuthenticated()) {
+      router.push('/login')
+      return
+    }
+    
+    try {
+      setLoading(true)
+      setError(null)
+      const response = await rpsService.getAll({ limit: 100 })
+      if (response.data) {
+        const data = Array.isArray(response.data) ? response.data : response.data.data || []
+        setRpsList(data)
+      }
+    } catch (err) {
+      console.error("Error fetching RPS:", err)
+      setError("Gagal memuat data RPS")
+    } finally {
+      setLoading(false)
+    }
+  }, [router])
+
+  useEffect(() => {
+    fetchRPS()
+  }, [fetchRPS])
+
+  const pendingRPS = rpsList.filter(rps => rps.status === 'submitted')
   
   const getFilteredRPS = () => {
-    let filtered = mockRPS
+    let filtered = rpsList
 
     if (activeTab !== 'all') {
       filtered = filtered.filter(rps => rps.status === activeTab)
@@ -82,9 +114,9 @@ export default function KaprodiRPSPage() {
 
     if (searchQuery) {
       filtered = filtered.filter(rps => 
-        rps.mataKuliahNama.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        rps.kodeMK.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        rps.dosenNama.toLowerCase().includes(searchQuery.toLowerCase())
+        rps.mata_kuliah_nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        rps.kode_mk.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        rps.dosen_nama.toLowerCase().includes(searchQuery.toLowerCase())
       )
     }
 
@@ -100,15 +132,61 @@ export default function KaprodiRPSPage() {
     setShowReviewDialog(true)
   }
 
+  const submitReview = async () => {
+    if (!selectedRPS) return
+    if (reviewAction === 'reject' && !reviewNotes.trim()) {
+      alert('Mohon berikan catatan revisi')
+      return
+    }
+
+    try {
+      setIsReviewing(true)
+      if (reviewAction === 'approve') {
+        await rpsService.approve(selectedRPS.id, { review_notes: reviewNotes })
+      } else {
+        await rpsService.reject(selectedRPS.id, { review_notes: reviewNotes })
+      }
+      await fetchRPS()
+      setShowReviewDialog(false)
+    } catch (err) {
+      console.error("Error reviewing RPS:", err)
+      alert("Gagal memproses review")
+    } finally {
+      setIsReviewing(false)
+    }
+  }
+
   const stats = {
-    all: mockRPS.length,
-    submitted: mockRPS.filter(r => r.status === 'submitted').length,
-    approved: mockRPS.filter(r => r.status === 'approved').length,
-    rejected: mockRPS.filter(r => r.status === 'rejected').length,
+    all: rpsList.length,
+    submitted: rpsList.filter(r => r.status === 'submitted').length,
+    approved: rpsList.filter(r => r.status === 'approved').length,
+    rejected: rpsList.filter(r => r.status === 'rejected').length,
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="flex flex-col items-center justify-center h-64 space-y-4">
+          <AlertCircle className="h-12 w-12 text-red-500" />
+          <p className="text-lg text-gray-600">{error}</p>
+          <Button onClick={fetchRPS}>Coba Lagi</Button>
+        </div>
+      </DashboardLayout>
+    )
   }
 
   return (
-    <DashboardLayout user={user} unreadNotifications={3}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Page Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -199,34 +277,34 @@ export default function KaprodiRPSPage() {
                       </div>
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-lg font-semibold text-slate-900">{rps.mataKuliahNama}</h3>
+                          <h3 className="text-lg font-semibold text-slate-900">{rps.mata_kuliah_nama}</h3>
                           <Badge variant={status.variant}>{status.label}</Badge>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                          <span className="font-mono">{rps.kodeMK}</span>
+                          <span className="font-mono">{rps.kode_mk}</span>
                           <span>•</span>
                           <span>{rps.sks} SKS</span>
                           <span>•</span>
                           <span>Semester {rps.semester}</span>
                           <span>•</span>
-                          <span>{rps.tahunAkademik}</span>
+                          <span>{rps.tahun_akademik}</span>
                         </div>
                         <p className="text-sm text-slate-600">
-                          Dosen: <span className="font-medium">{rps.dosenNama}</span>
+                          Dosen: <span className="font-medium">{rps.dosen_nama}</span>
                         </p>
-                        {rps.status === 'rejected' && rps.reviewNotes && (
+                        {rps.status === 'rejected' && rps.review_notes && (
                           <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3">
                             <div className="flex items-start gap-2">
                               <MessageSquare className="mt-0.5 h-4 w-4 text-red-500" />
                               <div>
                                 <p className="text-xs font-medium text-red-700">Catatan Review:</p>
-                                <p className="text-sm text-red-600">{rps.reviewNotes}</p>
+                                <p className="text-sm text-red-600">{rps.review_notes}</p>
                               </div>
                             </div>
                           </div>
                         )}
                         <p className="text-xs text-slate-400">
-                          Diperbarui: {formatDateTime(rps.updatedAt)}
+                          Diperbarui: {formatDateTime(rps.updated_at)}
                         </p>
                       </div>
                     </div>
@@ -312,8 +390,8 @@ export default function KaprodiRPSPage() {
               </DialogTitle>
               <DialogDescription>
                 {reviewAction === 'approve' 
-                  ? `Anda akan menyetujui RPS ${selectedRPS?.mataKuliahNama}. RPS yang disetujui dapat digunakan untuk generate dokumen kurikulum.`
-                  : `Anda akan menolak RPS ${selectedRPS?.mataKuliahNama}. Mohon berikan catatan revisi.`}
+                  ? `Anda akan menyetujui RPS ${selectedRPS?.mata_kuliah_nama}. RPS yang disetujui dapat digunakan untuk generate dokumen kurikulum.`
+                  : `Anda akan menolak RPS ${selectedRPS?.mata_kuliah_nama}. Mohon berikan catatan revisi.`}
               </DialogDescription>
             </DialogHeader>
             <div className="py-4">

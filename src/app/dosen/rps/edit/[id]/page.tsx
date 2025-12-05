@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { 
   ArrowLeft,
@@ -13,7 +13,8 @@ import {
   Target,
   Clock,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Loader2
 } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,37 +24,132 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { mockRPS, mockMataKuliah, mockCPLs, mockUsers } from "@/lib/mock-data"
+import { rpsService, cplService, mataKuliahService } from "@/lib/api"
+import type { RPS } from "@/lib/api/rps"
+import type { CPL } from "@/lib/api/cpl"
+import type { MataKuliah } from "@/lib/api/mata-kuliah"
 
 export default function EditRPSPage() {
   const params = useParams()
   const router = useRouter()
   const rpsId = params.id as string
   
-  const existingRPS = mockRPS.find(r => r.id === rpsId)
-  const mataKuliah = mockMataKuliah.find(mk => mk.id === existingRPS?.mataKuliahId)
+  const [rps, setRps] = useState<RPS | null>(null)
+  const [mataKuliah, setMataKuliah] = useState<MataKuliah | null>(null)
+  const [cplList, setCplList] = useState<CPL[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   
   const [activeTab, setActiveTab] = useState("dasar")
   const [isSaving, setIsSaving] = useState(false)
   const [expandedWeek, setExpandedWeek] = useState<number | null>(null)
 
   const [formData, setFormData] = useState({
-    deskripsi: existingRPS?.deskripsi || "",
-    tujuan: existingRPS?.tujuan || "",
-    metode: existingRPS?.metode || ["Ceramah"],
-    bobotNilai: existingRPS?.bobotNilai || {
+    deskripsi: "",
+    tujuan: "",
+    metode: ["Ceramah"],
+    bobotNilai: {
       tugas: 20,
       uts: 25,
       uas: 35,
       kehadiran: 10,
       praktikum: 10
     },
-    cpmk: existingRPS?.cpmk || [],
-    rencanaPembelajaran: existingRPS?.rencanaPembelajaran || [],
-    bahanBacaan: existingRPS?.bahanBacaan || []
+    cpmk: [] as Array<{
+      id: string
+      kode: string
+      deskripsi: string
+      cpl_ids: string[]
+    }>,
+    rencanaPembelajaran: [] as Array<{
+      pertemuan: number
+      topik: string
+      subTopik: string[]
+      metode: string
+      waktu: number
+      cpmk_ids: string[]
+      materi: string
+    }>,
+    bahanBacaan: [] as Array<{
+      id: string
+      jenis: string
+      judul: string
+      penulis: string
+      tahun: number
+    }>
   })
 
-  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      
+      const [rpsResponse, cplResponse] = await Promise.all([
+        rpsService.getById(rpsId),
+        cplService.getAll({ limit: 100 })
+      ])
+      
+      const rpsData = rpsResponse.data
+      setRps(rpsData)
+      setCplList(cplResponse.data?.data || [])
+      
+      if (rpsData) {
+        // Try to fetch mata kuliah info
+        try {
+          const mkResponse = await mataKuliahService.getById(rpsData.mata_kuliah_id)
+          setMataKuliah(mkResponse.data)
+        } catch {
+          // Ignore if mata kuliah fetch fails
+        }
+        
+        // Initialize form data from RPS
+        setFormData({
+          deskripsi: rpsData.deskripsi_mk || rpsData.deskripsi || "",
+          tujuan: rpsData.tujuan || rpsData.capaian_pembelajaran || "",
+          metode: rpsData.metode_pembelajaran || rpsData.metode || ["Ceramah"],
+          bobotNilai: {
+            tugas: rpsData.bobot_nilai?.tugas || 20,
+            uts: rpsData.bobot_nilai?.uts || 25,
+            uas: rpsData.bobot_nilai?.uas || 35,
+            kehadiran: rpsData.bobot_nilai?.kehadiran || 10,
+            praktikum: rpsData.bobot_nilai?.praktikum || 10
+          },
+          cpmk: rpsData.cpmk?.map(c => ({
+            id: c.id,
+            kode: c.kode,
+            deskripsi: c.deskripsi,
+            cpl_ids: c.cpl_ids || []
+          })) || [],
+          rencanaPembelajaran: rpsData.rencana_pembelajaran?.map(r => ({
+            pertemuan: r.pertemuan,
+            topik: r.topik || r.materi || "",
+            subTopik: r.sub_topik || [],
+            metode: r.metode_pembelajaran || r.metode || "Ceramah",
+            waktu: r.waktu_menit || r.waktu || 150,
+            cpmk_ids: r.cpmk_ids || [],
+            materi: r.materi || ""
+          })) || [],
+          bahanBacaan: rpsData.bahan_bacaan?.map(b => ({
+            id: b.id,
+            jenis: b.jenis,
+            judul: b.judul,
+            penulis: b.penulis || "",
+            tahun: b.tahun || 0
+          })) || []
+        })
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal memuat data RPS')
+    } finally {
+      setLoading(false)
+    }
+  }, [rpsId])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {}
@@ -65,7 +161,7 @@ export default function EditRPSPage() {
       newErrors.tujuan = "Tujuan pembelajaran wajib diisi"
     }
 
-    const totalBobot = Object.values(formData.bobotNilai).reduce((sum, val) => sum + val, 0)
+    const totalBobot = Object.values(formData.bobotNilai).reduce((sum, val) => sum + (val || 0), 0)
     if (totalBobot !== 100) {
       newErrors.bobot = `Total bobot penilaian harus 100% (saat ini ${totalBobot}%)`
     }
@@ -74,7 +170,7 @@ export default function EditRPSPage() {
       newErrors.cpmk = "Minimal harus ada 1 CPMK"
     }
 
-    setErrors(newErrors)
+    setFormErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
 
@@ -82,10 +178,19 @@ export default function EditRPSPage() {
     if (!validateForm()) return
 
     setIsSaving(true)
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    setIsSaving(false)
-    
-    router.push(`/dosen/rps/${rpsId}`)
+    try {
+      await rpsService.update(rpsId, {
+        deskripsi_mk: formData.deskripsi,
+        tujuan: formData.tujuan,
+        metode_pembelajaran: formData.metode,
+        bobot_nilai: formData.bobotNilai
+      })
+      router.push(`/dosen/rps/${rpsId}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menyimpan RPS')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleCancel = () => {
@@ -97,12 +202,12 @@ export default function EditRPSPage() {
       id: `cpmk-${formData.cpmk.length + 1}`,
       kode: `CPMK-${String(formData.cpmk.length + 1).padStart(2, '0')}`,
       deskripsi: "",
-      cplIds: []
+      cpl_ids: [] as string[]
     }
     setFormData({ ...formData, cpmk: [...formData.cpmk, newCPMK] })
   }
 
-  const updateCPMK = (index: number, field: string, value: any) => {
+  const updateCPMK = (index: number, field: string, value: unknown) => {
     const updatedCPMK = [...formData.cpmk]
     updatedCPMK[index] = { ...updatedCPMK[index], [field]: value }
     setFormData({ ...formData, cpmk: updatedCPMK })
@@ -117,10 +222,10 @@ export default function EditRPSPage() {
     const newPertemuan = {
       pertemuan: formData.rencanaPembelajaran.length + 1,
       topik: "",
-      subTopik: [],
+      subTopik: [] as string[],
       metode: "Ceramah",
       waktu: 150,
-      cpmkIds: [],
+      cpmk_ids: [] as string[],
       materi: ""
     }
     setFormData({ 
@@ -129,11 +234,33 @@ export default function EditRPSPage() {
     })
   }
 
-  // Get dosen user (second user in mockUsers)
-  const dosenUser = mockUsers.find(user => user.role === 'dosen') || mockUsers[1]
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-96 items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-green-600" />
+          <span className="ml-2 text-slate-600">Memuat data RPS...</span>
+        </div>
+      </DashboardLayout>
+    )
+  }
 
+  if (error || !rps) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-96 flex-col items-center justify-center">
+          <AlertCircle className="h-12 w-12 text-red-500 mb-4" />
+          <p className="text-lg font-medium text-slate-900">Gagal Memuat RPS</p>
+          <p className="text-slate-600">{error || 'RPS tidak ditemukan'}</p>
+          <Button className="mt-4" onClick={() => router.back()}>
+            Kembali
+          </Button>
+        </div>
+      </DashboardLayout>
+    )
+  }
   return (
-    <DashboardLayout user={{...dosenUser, role: 'dosen'}} unreadNotifications={2}>
+    <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center gap-4">
@@ -150,7 +277,7 @@ export default function EditRPSPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Edit RPS</h1>
-              <p className="text-gray-600">{mataKuliah?.nama} ({mataKuliah?.kode})</p>
+              <p className="text-gray-600">{mataKuliah?.nama || rps.mata_kuliah_nama} ({mataKuliah?.kode || rps.kode_mk})</p>
             </div>
           </div>
 
@@ -165,10 +292,7 @@ export default function EditRPSPage() {
             <Button onClick={() => handleSave()} disabled={isSaving} className="bg-green-600 hover:bg-green-700">
               {isSaving ? (
                 <>
-                  <svg className="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
+                  <Loader2 className="animate-spin h-4 w-4 mr-2" />
                   Menyimpan...
                 </>
               ) : (
@@ -182,7 +306,7 @@ export default function EditRPSPage() {
         </div>
 
         {/* Error Summary */}
-        {Object.keys(errors).length > 0 && (
+        {Object.keys(formErrors).length > 0 && (
           <Card className="border-red-200 bg-red-50">
             <CardContent className="p-4">
               <div className="flex items-start gap-3">
@@ -190,8 +314,8 @@ export default function EditRPSPage() {
                 <div>
                   <h4 className="font-medium text-red-800 mb-1">Terdapat kesalahan pada form:</h4>
                   <ul className="text-sm text-red-700 list-disc list-inside space-y-1">
-                    {Object.values(errors).map((error, idx) => (
-                      <li key={idx}>{error}</li>
+                    {Object.values(formErrors).map((err, idx) => (
+                      <li key={idx}>{err}</li>
                     ))}
                   </ul>
                 </div>
@@ -232,10 +356,10 @@ export default function EditRPSPage() {
                     onChange={(e) => setFormData({ ...formData, deskripsi: e.target.value })}
                     placeholder="Mata kuliah ini membahas..."
                     rows={4}
-                    className={errors.deskripsi ? "border-red-500" : ""}
+                    className={formErrors.deskripsi ? "border-red-500" : ""}
                   />
-                  {errors.deskripsi && (
-                    <p className="text-sm text-red-500">{errors.deskripsi}</p>
+                  {formErrors.deskripsi && (
+                    <p className="text-sm text-red-500">{formErrors.deskripsi}</p>
                   )}
                 </div>
 
@@ -247,10 +371,10 @@ export default function EditRPSPage() {
                     onChange={(e) => setFormData({ ...formData, tujuan: e.target.value })}
                     placeholder="Setelah menyelesaikan mata kuliah ini, mahasiswa diharapkan..."
                     rows={4}
-                    className={errors.tujuan ? "border-red-500" : ""}
+                    className={formErrors.tujuan ? "border-red-500" : ""}
                   />
-                  {errors.tujuan && (
-                    <p className="text-sm text-red-500">{errors.tujuan}</p>
+                  {formErrors.tujuan && (
+                    <p className="text-sm text-red-500">{formErrors.tujuan}</p>
                   )}
                 </div>
 
@@ -294,8 +418,8 @@ export default function EditRPSPage() {
                 </Button>
               </CardHeader>
               <CardContent className="space-y-4">
-                {errors.cpmk && (
-                  <p className="text-sm text-red-500">{errors.cpmk}</p>
+                {formErrors.cpmk && (
+                  <p className="text-sm text-red-500">{formErrors.cpmk}</p>
                 )}
                 
                 {formData.cpmk.map((cpmk, index) => (
@@ -325,15 +449,15 @@ export default function EditRPSPage() {
                     <div className="space-y-2">
                       <Label>Mapping ke CPL</Label>
                       <div className="flex flex-wrap gap-2">
-                        {mockCPLs.filter(cpl => cpl.status === "published").map(cpl => (
+                        {cplList.filter(cpl => cpl.status === "published").map(cpl => (
                           <label key={cpl.id} className="flex items-center gap-2 cursor-pointer">
                             <input
                               type="checkbox"
-                              checked={cpmk.cplIds.includes(cpl.id)}
+                              checked={cpmk.cpl_ids.includes(cpl.id)}
                               onChange={(e) => {
                                 const newCplIds = e.target.checked
-                                  ? [...cpmk.cplIds, cpl.id]
-                                  : cpmk.cplIds.filter(id => id !== cpl.id)
+                                  ? [...cpmk.cpl_ids, cpl.id]
+                                  : cpmk.cpl_ids.filter(id => id !== cpl.id)
                                 updateCPMK(index, 'cplIds', newCplIds)
                               }}
                               className="rounded"
@@ -435,8 +559,8 @@ export default function EditRPSPage() {
                 <CardDescription>Distribusi bobot penilaian (total harus 100%)</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {errors.bobot && (
-                  <p className="text-sm text-red-500">{errors.bobot}</p>
+                {formErrors.bobot && (
+                  <p className="text-sm text-red-500">{formErrors.bobot}</p>
                 )}
 
                 <div className="grid gap-4 md:grid-cols-2">

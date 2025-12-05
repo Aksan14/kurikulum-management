@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { 
   Bell, 
   Check, 
@@ -13,7 +13,10 @@ import {
   MoreHorizontal,
   Filter,
   Search,
-  X
+  X,
+  Loader2,
+  RefreshCw,
+  AlertTriangle
 } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -22,63 +25,80 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { mockNotifications } from "@/lib/mock-data"
 import { formatDateTime, getInitials } from "@/lib/utils"
-import type { Notification } from "@/types"
+import { useAuth } from "@/contexts/AuthContext"
+import { notificationService, Notification as ApiNotification } from "@/lib/api/notifications"
 
-const moreNotifications: Notification[] = [
-  {
-    id: "notif-5",
-    userId: "kaprodi-1",
-    title: "RPS Perlu Review",
-    message: "RPS Jaringan Komputer dari Dr. Siti Aminah menunggu review Anda.",
-    type: "rps_submission",
-    isRead: true,
-    createdAt: "2024-01-08T14:20:00Z",
-    relatedId: "rps-5"
-  },
-  {
-    id: "notif-6",
-    userId: "kaprodi-1",
-    title: "Deadline CPL Mapping",
-    message: "Deadline mapping CPL-CPMK semester ini adalah 20 Januari 2024.",
-    type: "deadline",
-    isRead: true,
-    createdAt: "2024-01-07T09:00:00Z"
-  },
-  {
-    id: "notif-7",
-    userId: "kaprodi-1",
-    title: "RPS Direvisi",
-    message: "Dr. Ahmad Fauzi telah merevisi RPS Pemrograman Lanjut.",
-    type: "rps_revision",
-    isRead: true,
-    createdAt: "2024-01-06T16:45:00Z",
-    relatedId: "rps-3"
-  },
-  {
-    id: "notif-8",
-    userId: "kaprodi-1",
-    title: "Penugasan CPL Diterima",
-    message: "Dr. Maya Kusuma telah menerima penugasan CPL untuk Basis Data.",
-    type: "cpl_assignment",
-    isRead: true,
-    createdAt: "2024-01-05T11:30:00Z"
-  }
-]
-
-const allNotifications = [...mockNotifications, ...moreNotifications]
+// Display notification interface
+interface DisplayNotification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: string;
+  isRead: boolean;
+  createdAt: string;
+  relatedId?: string;
+}
 
 export default function NotificationsPage() {
+  const { user: authUser } = useAuth()
+  
+  // State
+  const [notifications, setNotifications] = useState<DisplayNotification[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  
   const [activeTab, setActiveTab] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
-  const [notifications, setNotifications] = useState(allNotifications)
   const [selectedNotifications, setSelectedNotifications] = useState<string[]>([])
+
+  // Fetch notifications
+  const fetchNotifications = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const params: Record<string, string | number | boolean> = { limit: 100 }
+      if (activeTab === 'unread') params.is_read = false
+
+      const response = await notificationService.getAll(params)
+      
+      if (response.success && response.data && response.data.data) {
+        const mappedNotifications: DisplayNotification[] = response.data.data.map(n => ({
+          id: n.id,
+          userId: n.user_id,
+          title: n.title,
+          message: n.message,
+          type: n.type === 'assignment' ? 'cpl_assignment' : 
+                n.type === 'approval' ? 'rps_approval' :
+                n.type === 'rejection' ? 'rps_revision' :
+                n.type === 'document' ? 'rps_submission' :
+                n.type === 'deadline' ? 'deadline' : n.type,
+          isRead: n.is_read,
+          createdAt: n.created_at,
+          relatedId: n.related_id
+        }))
+        setNotifications(mappedNotifications)
+      } else {
+        setNotifications([])
+      }
+    } catch (err) {
+      console.error('Error fetching notifications:', err)
+      setError('Gagal memuat notifikasi. Pastikan server API berjalan.')
+      setNotifications([])
+    } finally {
+      setLoading(false)
+    }
+  }, [activeTab])
+
+  useEffect(() => {
+    fetchNotifications()
+  }, [fetchNotifications])
 
   const unreadCount = notifications.filter(n => !n.isRead).length
 
   const filteredNotifications = notifications.filter(notif => {
-    const matchesSearch = 
+    const matchesSearch = searchQuery === '' ||
       notif.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       notif.message.toLowerCase().includes(searchQuery.toLowerCase())
     
@@ -87,24 +107,48 @@ export default function NotificationsPage() {
     return matchesSearch && notif.type === activeTab
   })
 
-  const markAsRead = (id: string) => {
-    setNotifications(notifications.map(n => 
-      n.id === id ? { ...n, isRead: true } : n
-    ))
+  const markAsRead = async (id: string) => {
+    try {
+      await notificationService.markAsRead(id)
+      setNotifications(notifications.map(n => 
+        n.id === id ? { ...n, isRead: true } : n
+      ))
+    } catch (err) {
+      console.error('Error marking as read:', err)
+      setError('Gagal menandai notifikasi sebagai dibaca')
+    }
   }
 
-  const markAllAsRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, isRead: true })))
+  const markAllAsRead = async () => {
+    try {
+      await notificationService.markAllAsRead()
+      setNotifications(notifications.map(n => ({ ...n, isRead: true })))
+    } catch (err) {
+      console.error('Error marking all as read:', err)
+      setError('Gagal menandai semua notifikasi sebagai dibaca')
+    }
   }
 
-  const deleteNotification = (id: string) => {
-    setNotifications(notifications.filter(n => n.id !== id))
-    setSelectedNotifications(selectedNotifications.filter(sid => sid !== id))
+  const deleteNotification = async (id: string) => {
+    try {
+      await notificationService.delete(id)
+      setNotifications(notifications.filter(n => n.id !== id))
+      setSelectedNotifications(selectedNotifications.filter(sid => sid !== id))
+    } catch (err) {
+      console.error('Error deleting notification:', err)
+      setError('Gagal menghapus notifikasi')
+    }
   }
 
-  const deleteSelected = () => {
-    setNotifications(notifications.filter(n => !selectedNotifications.includes(n.id)))
-    setSelectedNotifications([])
+  const deleteSelected = async () => {
+    try {
+      await Promise.all(selectedNotifications.map(id => notificationService.delete(id)))
+      setNotifications(notifications.filter(n => !selectedNotifications.includes(n.id)))
+      setSelectedNotifications([])
+    } catch (err) {
+      console.error('Error deleting selected:', err)
+      setError('Gagal menghapus notifikasi terpilih')
+    }
   }
 
   const toggleSelect = (id: string) => {
@@ -399,6 +443,18 @@ export default function NotificationsPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            ) : error && !loading ? (
+              <div className="py-16 text-center">
+                <div className="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                  <AlertTriangle className="h-8 w-8 text-red-400" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-1">Gagal Memuat Notifikasi</h3>
+                <p className="text-gray-500 mb-4">{error}</p>
+                <Button onClick={fetchNotifications} variant="outline">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Coba Lagi
+                </Button>
               </div>
             ) : (
               <div className="py-16 text-center">

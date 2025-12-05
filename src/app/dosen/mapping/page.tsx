@@ -7,7 +7,6 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DashboardLayout } from '@/components/layout'
-import { mockUsers } from '@/lib/mock-data'
 import { 
   Search, 
   Plus, 
@@ -112,11 +111,8 @@ export default function DosenMappingPage() {
     return matchesSearch && matchesSemester && matchesStatus
   })
 
-  // Get dosen user (second user in mockUsers)
-  const dosenUser = mockUsers.find(user => user.role === 'dosen') || mockUsers[1]
-
   return (
-    <DashboardLayout user={{...dosenUser, role: 'dosen'}} unreadNotifications={2}>
+    <DashboardLayout>
       <div className="space-y-8">
       {/* Header */}
       <div className="flex flex-col gap-2">

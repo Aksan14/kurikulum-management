@@ -29,7 +29,7 @@ import {
   Share,
   Printer
 } from 'lucide-react'
-import { mockUsers } from '@/lib/mock-data'
+
 
 interface ReportData {
   rpsSubmissions: {
@@ -102,7 +102,6 @@ const mockReportData: ReportData = {
 }
 
 export default function ReportsPage() {
-  const user = mockUsers[0] // Kaprodi user
   const [reportData] = useState<ReportData>(mockReportData)
   const [selectedPeriod, setSelectedPeriod] = useState('semester-current')
   const [reportType, setReportType] = useState<'overview' | 'rps' | 'cpl' | 'dosen' | 'courses'>('overview')
@@ -134,7 +133,7 @@ export default function ReportsPage() {
   }
 
   return (
-    <DashboardLayout user={user}>
+    <DashboardLayout>
       <div className="space-y-8">
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

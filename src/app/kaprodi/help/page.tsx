@@ -32,7 +32,7 @@ import {
   Heart,
   Send
 } from 'lucide-react'
-import { mockUsers } from '@/lib/mock-data'
+
 
 interface FAQItem {
   id: string
@@ -121,7 +121,6 @@ const supportTickets: SupportTicket[] = [
 ]
 
 export default function HelpSupportPage() {
-  const user = mockUsers[0] // Kaprodi user
   const [faqs] = useState<FAQItem[]>(faqData)
   const [tickets] = useState<SupportTicket[]>(supportTickets)
   const [searchQuery, setSearchQuery] = useState('')
@@ -212,7 +211,7 @@ export default function HelpSupportPage() {
   }
 
   return (
-    <DashboardLayout user={user}>
+    <DashboardLayout>
       <div className="space-y-8">
         {/* Header */}
         <div className="text-center space-y-4">

@@ -1,6 +1,7 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { 
   BookOpen,
   Plus,
@@ -14,7 +15,10 @@ import {
   GraduationCap,
   Clock,
   FileText,
-  Eye
+  Eye,
+  Loader2,
+  RefreshCw,
+  AlertTriangle
 } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -26,99 +30,173 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { useAuth } from "@/contexts/AuthContext"
+import { mataKuliahService, MataKuliah, CreateMataKuliahRequest } from "@/lib/api/mata-kuliah"
+import Link from "next/link"
 
-// Mock data mata kuliah
-const mockMataKuliah = [
-  {
-    id: "mk-1",
-    kode: "TIF101",
-    nama: "Algoritma dan Pemrograman",
-    sks: 3,
-    semester: 1,
-    jenis: "Wajib",
-    prasyarat: [],
-    deskripsi: "Mata kuliah yang membahas konsep dasar algoritma dan pemrograman komputer",
-    dosenPengampu: ["Dr. Budi Santoso", "Dr. Sari Wahyuni"],
-    cplTerkait: ["CPL-1", "CPL-3"],
-    status: "aktif"
-  },
-  {
-    id: "mk-2",
-    kode: "TIF102",
-    nama: "Struktur Data",
-    sks: 3,
-    semester: 2,
-    jenis: "Wajib",
-    prasyarat: ["TIF101"],
-    deskripsi: "Mata kuliah yang membahas berbagai struktur data dan implementasinya",
-    dosenPengampu: ["Dr. Ahmad Fauzi"],
-    cplTerkait: ["CPL-2", "CPL-3"],
-    status: "aktif"
-  },
-  {
-    id: "mk-3",
-    kode: "TIF201",
-    nama: "Basis Data",
-    sks: 3,
-    semester: 3,
-    jenis: "Wajib",
-    prasyarat: ["TIF102"],
-    deskripsi: "Mata kuliah yang membahas konsep dan implementasi sistem basis data",
-    dosenPengampu: ["Dr. Lisa Permata"],
-    cplTerkait: ["CPL-1", "CPL-4"],
-    status: "aktif"
-  },
-  {
-    id: "mk-4",
-    kode: "TIF301",
-    nama: "Kecerdasan Buatan",
-    sks: 3,
-    semester: 5,
-    jenis: "Pilihan",
-    prasyarat: ["TIF201", "TIF202"],
-    deskripsi: "Mata kuliah yang membahas konsep dan teknik kecerdasan buatan",
-    dosenPengampu: ["Dr. Rudi Hartono"],
-    cplTerkait: ["CPL-2", "CPL-5"],
-    status: "aktif"
-  },
-  {
-    id: "mk-5",
-    kode: "TIF302",
-    nama: "Pembelajaran Mesin",
-    sks: 3,
-    semester: 6,
-    jenis: "Pilihan",
-    prasyarat: ["TIF301"],
-    deskripsi: "Mata kuliah yang membahas algoritma dan teknik pembelajaran mesin",
-    dosenPengampu: ["Dr. Maya Sari"],
-    cplTerkait: ["CPL-2", "CPL-6"],
-    status: "aktif"
-  }
-]
+// Display interface for mata kuliah
+interface DisplayMataKuliah {
+  id: string;
+  kode: string;
+  nama: string;
+  sks: number;
+  semester: number;
+  jenis: string;
+  prasyarat: string[];
+  deskripsi: string;
+  dosenPengampu: string[];
+  cplTerkait: string[];
+  status: string;
+}
 
 export default function MataKuliahPage() {
+  const router = useRouter()
+  const { user: authUser } = useAuth()
+  
+  // State
+  const [mataKuliahList, setMataKuliahList] = useState<DisplayMataKuliah[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  
   const [activeTab, setActiveTab] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [filterSemester, setFilterSemester] = useState("all")
   const [filterJenis, setFilterJenis] = useState("all")
   const [showCreateDialog, setShowCreateDialog] = useState(false)
+  
+  // Create form state
+  const [createForm, setCreateForm] = useState({
+    kode: '',
+    nama: '',
+    sks: '',
+    semester: '',
+    jenis: '',
+    deskripsi: ''
+  })
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
-  const filteredMataKuliah = mockMataKuliah.filter(mk => {
-    const matchesSearch = 
+  // Delete state
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [selectedMK, setSelectedMK] = useState<DisplayMataKuliah | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  // Fetch data
+  const fetchMataKuliah = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const params: Record<string, string | number> = { limit: 100 }
+      if (filterSemester !== 'all') params.semester = parseInt(filterSemester)
+      if (filterJenis !== 'all') params.jenis = filterJenis
+      if (searchQuery) params.search = searchQuery
+
+      const response = await mataKuliahService.getAll(params)
+      
+      if (response.success && response.data && response.data.data) {
+        const mappedData: DisplayMataKuliah[] = response.data.data.map(mk => {
+          // Normalize jenis: handle null, undefined, empty string, and case variations
+          const jenisRaw = (mk.jenis || '').toLowerCase().trim()
+          const jenisDisplay = jenisRaw === 'pilihan' ? 'Pilihan' : 'Wajib' // Default to Wajib
+          
+          return {
+            id: mk.id,
+            kode: mk.kode,
+            nama: mk.nama,
+            sks: mk.sks,
+            semester: mk.semester,
+            jenis: jenisDisplay,
+            prasyarat: mk.prasyarat || [],
+            deskripsi: mk.deskripsi || '',
+            dosenPengampu: mk.dosen_pengampu ? [mk.dosen_pengampu.nama] : [],
+            cplTerkait: [],
+            status: mk.status
+          }
+        })
+        setMataKuliahList(mappedData)
+      } else {
+        setMataKuliahList([])
+      }
+    } catch (err) {
+      console.error('Error fetching mata kuliah:', err)
+      setError('Gagal memuat data mata kuliah. Pastikan server API berjalan.')
+      setMataKuliahList([])
+    } finally {
+      setLoading(false)
+    }
+  }, [filterSemester, filterJenis, searchQuery])
+
+  useEffect(() => {
+    fetchMataKuliah()
+  }, [fetchMataKuliah])
+
+  // Filter logic
+  const filteredMataKuliah = mataKuliahList.filter(mk => {
+    const matchesSearch = searchQuery === '' ||
       mk.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
       mk.kode.toLowerCase().includes(searchQuery.toLowerCase())
-    
-    const matchesSemester = filterSemester === "all" || mk.semester.toString() === filterSemester
-    const matchesJenis = filterJenis === "all" || mk.jenis.toLowerCase() === filterJenis.toLowerCase()
-    
-    return matchesSearch && matchesSemester && matchesJenis
+    return matchesSearch
   })
 
   const stats = {
-    total: mockMataKuliah.length,
-    wajib: mockMataKuliah.filter(mk => mk.jenis === "Wajib").length,
-    pilihan: mockMataKuliah.filter(mk => mk.jenis === "Pilihan").length,
-    totalSks: mockMataKuliah.reduce((total, mk) => total + mk.sks, 0)
+    total: mataKuliahList.length,
+    wajib: mataKuliahList.filter(mk => mk.jenis === "Wajib").length,
+    pilihan: mataKuliahList.filter(mk => mk.jenis === "Pilihan").length,
+    totalSks: mataKuliahList.reduce((total, mk) => total + mk.sks, 0)
+  }
+
+  // Handle create
+  const handleCreate = async () => {
+    if (!createForm.kode || !createForm.nama || !createForm.sks || !createForm.semester || !createForm.jenis) {
+      setCreateError('Semua field wajib diisi')
+      return
+    }
+
+    setCreating(true)
+    setCreateError(null)
+    try {
+      const data: CreateMataKuliahRequest = {
+        kode: createForm.kode,
+        nama: createForm.nama,
+        sks: parseInt(createForm.sks),
+        semester: parseInt(createForm.semester),
+        jenis: createForm.jenis as 'wajib' | 'pilihan',
+        deskripsi: createForm.deskripsi
+      }
+
+      const response = await mataKuliahService.create(data)
+      if (response.success) {
+        setShowCreateDialog(false)
+        setCreateForm({ kode: '', nama: '', sks: '', semester: '', jenis: '', deskripsi: '' })
+        fetchMataKuliah()
+      } else {
+        setCreateError(response.message || 'Gagal membuat mata kuliah')
+      }
+    } catch (err) {
+      console.error('Error creating mata kuliah:', err)
+      setCreateError('Terjadi kesalahan')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  // Handle delete
+  const handleDelete = async () => {
+    if (!selectedMK) return
+
+    setDeleting(true)
+    try {
+      const response = await mataKuliahService.delete(selectedMK.id)
+      if (response.success) {
+        setShowDeleteDialog(false)
+        setSelectedMK(null)
+        fetchMataKuliah()
+      }
+    } catch (err) {
+      console.error('Error deleting mata kuliah:', err)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   return (
@@ -249,7 +327,12 @@ export default function MataKuliahPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            {filteredMataKuliah.length > 0 ? (
+            {loading ? (
+              <div className="py-16 flex flex-col items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+                <p className="mt-4 text-sm text-gray-500">Memuat data...</p>
+              </div>
+            ) : filteredMataKuliah.length > 0 ? (
               <div className="divide-y">
                 {filteredMataKuliah.map((mk) => (
                   <div key={mk.id} className="p-6 hover:bg-gray-50 transition-colors">
@@ -293,33 +376,43 @@ export default function MataKuliahPage() {
                               </div>
                             )}
                             
-                            <div>
-                              <span className="text-sm font-medium text-gray-700">Dosen Pengampu: </span>
-                              <span className="text-sm text-gray-600">{mk.dosenPengampu.join(", ")}</span>
-                            </div>
+                            {mk.dosenPengampu.length > 0 && (
+                              <div>
+                                <span className="text-sm font-medium text-gray-700">Dosen Pengampu: </span>
+                                <span className="text-sm text-gray-600">{mk.dosenPengampu.join(", ")}</span>
+                              </div>
+                            )}
                             
-                            <div className="flex flex-wrap gap-1">
-                              <span className="text-sm font-medium text-gray-700">CPL Terkait: </span>
-                              {mk.cplTerkait.map((cpl, index) => (
-                                <Badge key={index} variant="outline" className="text-xs">
-                                  {cpl}
-                                </Badge>
-                              ))}
-                            </div>
+                            {mk.cplTerkait.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                <span className="text-sm font-medium text-gray-700">CPL Terkait: </span>
+                                {mk.cplTerkait.map((cpl, index) => (
+                                  <Badge key={index} variant="outline" className="text-xs">
+                                    {cpl}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
 
                       <div className="flex gap-2 lg:flex-shrink-0">
-                        <Button variant="outline" size="sm">
-                          <Eye className="h-4 w-4 mr-2" />
-                          Detail
+                        <Button variant="outline" size="sm" asChild>
+                          <Link href={`/kaprodi/mata-kuliah/edit/${mk.id}`}>
+                            <Edit3 className="h-4 w-4 mr-2" />
+                            Edit
+                          </Link>
                         </Button>
-                        <Button variant="outline" size="sm">
-                          <Edit3 className="h-4 w-4 mr-2" />
-                          Edit
-                        </Button>
-                        <Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="text-red-600 hover:bg-red-50"
+                          onClick={() => {
+                            setSelectedMK(mk)
+                            setShowDeleteDialog(true)
+                          }}
+                        >
                           <Trash2 className="h-4 w-4 mr-2" />
                           Hapus
                         </Button>
@@ -361,11 +454,19 @@ export default function MataKuliahPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="kode">Kode Mata Kuliah</Label>
-                <Input id="kode" placeholder="TIF101" />
+                <Input 
+                  id="kode" 
+                  placeholder="TIF101" 
+                  value={createForm.kode}
+                  onChange={(e) => setCreateForm({ ...createForm, kode: e.target.value })}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="sks">SKS</Label>
-                <Select>
+                <Select 
+                  value={createForm.sks} 
+                  onValueChange={(value) => setCreateForm({ ...createForm, sks: value })}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Pilih SKS" />
                   </SelectTrigger>
@@ -381,13 +482,21 @@ export default function MataKuliahPage() {
             
             <div className="space-y-2">
               <Label htmlFor="nama">Nama Mata Kuliah</Label>
-              <Input id="nama" placeholder="Algoritma dan Pemrograman" />
+              <Input 
+                id="nama" 
+                placeholder="Algoritma dan Pemrograman" 
+                value={createForm.nama}
+                onChange={(e) => setCreateForm({ ...createForm, nama: e.target.value })}
+              />
             </div>
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="semester">Semester</Label>
-                <Select>
+                <Select 
+                  value={createForm.semester}
+                  onValueChange={(value) => setCreateForm({ ...createForm, semester: value })}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Pilih Semester" />
                   </SelectTrigger>
@@ -402,13 +511,16 @@ export default function MataKuliahPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="jenis">Jenis</Label>
-                <Select>
+                <Select
+                  value={createForm.jenis}
+                  onValueChange={(value) => setCreateForm({ ...createForm, jenis: value })}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Pilih Jenis" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Wajib">Wajib</SelectItem>
-                    <SelectItem value="Pilihan">Pilihan</SelectItem>
+                    <SelectItem value="wajib">Wajib</SelectItem>
+                    <SelectItem value="pilihan">Pilihan</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -420,15 +532,58 @@ export default function MataKuliahPage() {
                 id="deskripsi" 
                 placeholder="Deskripsi mata kuliah..."
                 rows={3}
+                value={createForm.deskripsi}
+                onChange={(e) => setCreateForm({ ...createForm, deskripsi: e.target.value })}
               />
             </div>
+
+            {createError && (
+              <p className="text-sm text-red-500">{createError}</p>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+            <Button variant="outline" onClick={() => setShowCreateDialog(false)} disabled={creating}>
               Batal
             </Button>
-            <Button className="bg-green-600 hover:bg-green-700">
+            <Button 
+              className="bg-green-600 hover:bg-green-700" 
+              onClick={handleCreate}
+              disabled={creating}
+            >
+              {creating ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
               Simpan Mata Kuliah
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Hapus Mata Kuliah</DialogTitle>
+            <DialogDescription>
+              Apakah Anda yakin ingin menghapus mata kuliah <strong>{selectedMK?.kode} - {selectedMK?.nama}</strong>? 
+              Tindakan ini tidak dapat dibatalkan.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)} disabled={deleting}>
+              Batal
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Hapus
             </Button>
           </DialogFooter>
         </DialogContent>

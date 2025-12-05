@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -42,19 +43,16 @@ import {
   Archive,
   CheckCircle,
   Clock,
-  GraduationCap
+  GraduationCap,
+  Loader2,
+  RefreshCw,
+  AlertTriangle
 } from "lucide-react"
-import { mockUsers, mockCPLs } from "@/lib/mock-data"
 import { cn, formatDate } from "@/lib/utils"
 import Link from "next/link"
-import { CPL } from "@/types"
-
-const aspekLabels = {
-  sikap: 'Sikap',
-  pengetahuan: 'Pengetahuan',
-  keterampilan_umum: 'Keterampilan Umum',
-  keterampilan_khusus: 'Keterampilan Khusus'
-}
+import { useAuth } from "@/contexts/AuthContext"
+import { authService } from "@/lib/api/auth"
+import { cplService, CPL as ApiCPL, CPLStatistics } from "@/lib/api/cpl"
 
 const statusConfig = {
   draft: { label: 'Draft', variant: 'default' as const, icon: Clock },
@@ -62,25 +60,167 @@ const statusConfig = {
   archived: { label: 'Archived', variant: 'outline' as const, icon: Archive },
 }
 
+// Local CPL type for display (maps from API CPL)
+interface DisplayCPL {
+  id: string;
+  kode: string;
+  nama: string;
+  deskripsi: string;
+  status: 'draft' | 'published' | 'archived';
+  version: number;
+  updatedAt: string;
+}
+
 export default function CPLListPage() {
-  const user = mockUsers[0]
+  const router = useRouter()
+  const { user: authUser } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
-  const [filterAspek, setFilterAspek] = useState<string>('all')
   const [filterStatus, setFilterStatus] = useState<string>('all')
-  const [selectedCPL, setSelectedCPL] = useState<CPL | null>(null)
+  const [selectedCPL, setSelectedCPL] = useState<DisplayCPL | null>(null)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   
-  const filteredCPLs = mockCPLs.filter(cpl => {
-    const matchesSearch = cpl.kode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         cpl.judul.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         cpl.deskripsi.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesAspek = filterAspek === 'all' || cpl.aspek === filterAspek
-    const matchesStatus = filterStatus === 'all' || cpl.status === filterStatus
-    return matchesSearch && matchesAspek && matchesStatus
+  // API State
+  const [cplList, setCplList] = useState<DisplayCPL[]>([])
+  const [statistics, setStatistics] = useState<CPLStatistics>({
+    total_cpl: 0,
+    published: 0,
+    draft: 0,
+    archived: 0
   })
+  const [loading, setLoading] = useState(true)
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const draftCPLs = mockCPLs.filter(cpl => cpl.status === 'draft')
-  const publishedCPLs = mockCPLs.filter(cpl => cpl.status === 'published')
+  // User for layout (fallback for display)
+  const user = authUser ? {
+    id: authUser.id,
+    nama: authUser.nama,
+    email: authUser.email,
+    role: authUser.role as "kaprodi" | "dosen" | "admin",
+    avatar: "/avatars/default.png",
+  } : {
+    id: '',
+    nama: 'Guest',
+    email: '',
+    role: 'dosen' as const,
+    avatar: '/avatars/default.png'
+  }
+
+  // Fetch CPL data
+  const fetchCPLData = useCallback(async () => {
+    // Check if user is authenticated
+    if (!authService.isAuthenticated()) {
+      router.push('/login')
+      return
+    }
+    
+    setLoading(true)
+    setError(null)
+    try {
+      // Build params for API call
+      const params: Record<string, string | number> = {}
+      if (filterStatus !== 'all') params.status = filterStatus
+      if (searchQuery) params.search = searchQuery
+      params.limit = 100 // Get all for now
+
+      const [cplResponse, statsResponse] = await Promise.all([
+        cplService.getAll(params),
+        cplService.getStatistics()
+      ])
+
+      if (cplResponse.success && cplResponse.data) {
+        // Handle case where data might be null, undefined, or not an array
+        const cplData = cplResponse.data.data || []
+        const mappedCPLs: DisplayCPL[] = Array.isArray(cplData) ? cplData.map(cpl => ({
+          id: cpl.id,
+          kode: cpl.kode,
+          nama: cpl.nama,
+          deskripsi: cpl.deskripsi,
+          status: cpl.status,
+          version: cpl.version,
+          updatedAt: cpl.updated_at
+        })) : []
+        setCplList(mappedCPLs)
+      } else {
+        setCplList([])
+      }
+
+      if (statsResponse.success && statsResponse.data) {
+        setStatistics(statsResponse.data)
+      } else {
+        setStatistics({
+          total_cpl: 0,
+          published: 0,
+          draft: 0,
+          archived: 0
+        })
+      }
+    } catch (err) {
+      console.error('Error fetching CPL data:', err)
+      setError('Gagal memuat data CPL. Pastikan server API berjalan.')
+      setCplList([])
+      setStatistics({
+        total_cpl: 0,
+        published: 0,
+        draft: 0,
+        archived: 0
+      })
+    } finally {
+      setLoading(false)
+    }
+  }, [filterStatus, searchQuery, router])
+
+  // Initial fetch and on filter change
+  useEffect(() => {
+    fetchCPLData()
+  }, [fetchCPLData])
+
+  // Handle status change (publish/archive)
+  const handleStatusChange = async (cplId: string, newStatus: 'draft' | 'published' | 'archived') => {
+    try {
+      const response = await cplService.updateStatus(cplId, newStatus)
+      if (response.success) {
+        // Refresh data
+        fetchCPLData()
+      } else {
+        setError(response.message || 'Gagal mengubah status')
+      }
+    } catch (err) {
+      console.error('Error updating status:', err)
+      setError('Gagal mengubah status')
+    }
+  }
+
+  // Handle delete
+  const handleDelete = async () => {
+    if (!selectedCPL) return
+    
+    setDeleting(true)
+    try {
+      const response = await cplService.delete(selectedCPL.id)
+      if (response.success) {
+        setShowDeleteDialog(false)
+        setSelectedCPL(null)
+        fetchCPLData()
+      } else {
+        setError(response.message || 'Gagal menghapus CPL')
+      }
+    } catch (err) {
+      console.error('Error deleting CPL:', err)
+      setError('Gagal menghapus CPL')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  // Filter CPL list (client-side filtering for search)
+  const filteredCPLs = cplList.filter(cpl => {
+    const matchesSearch = searchQuery === '' || 
+      cpl.kode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      cpl.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      cpl.deskripsi.toLowerCase().includes(searchQuery.toLowerCase())
+    return matchesSearch
+  })
 
   return (
     <DashboardLayout user={user} unreadNotifications={3}>
@@ -110,7 +250,7 @@ export default function CPLListPage() {
                   <GraduationCap className="h-6 w-6 text-blue-600" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-blue-900">{mockCPLs.length}</p>
+                  <p className="text-2xl font-bold text-blue-900">{statistics.total_cpl}</p>
                   <p className="text-sm text-blue-700">Total CPL</p>
                 </div>
               </div>
@@ -123,7 +263,7 @@ export default function CPLListPage() {
                   <CheckCircle className="h-6 w-6 text-emerald-600" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-emerald-900">{publishedCPLs.length}</p>
+                  <p className="text-2xl font-bold text-emerald-900">{statistics.published}</p>
                   <p className="text-sm text-emerald-700">Published</p>
                 </div>
               </div>
@@ -136,7 +276,7 @@ export default function CPLListPage() {
                   <Clock className="h-6 w-6 text-amber-600" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-amber-900">{draftCPLs.length}</p>
+                  <p className="text-2xl font-bold text-amber-900">{statistics.draft}</p>
                   <p className="text-sm text-amber-700">Draft</p>
                 </div>
               </div>
@@ -149,7 +289,7 @@ export default function CPLListPage() {
                   <Archive className="h-6 w-6 text-purple-600" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-purple-900">0</p>
+                  <p className="text-2xl font-bold text-purple-900">{statistics.archived}</p>
                   <p className="text-sm text-purple-700">Archived</p>
                 </div>
               </div>
@@ -164,28 +304,16 @@ export default function CPLListPage() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <Input
-                  placeholder="Cari kode, judul, atau deskripsi CPL..."
+                  placeholder="Cari kode, nama, atau deskripsi CPL..."
                   className="pl-10"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
               <div className="flex gap-3">
-                <Select value={filterAspek} onValueChange={setFilterAspek}>
-                  <SelectTrigger className="w-[180px]">
-                    <Filter className="mr-2 h-4 w-4" />
-                    <SelectValue placeholder="Filter Aspek" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Semua Aspek</SelectItem>
-                    <SelectItem value="sikap">Sikap</SelectItem>
-                    <SelectItem value="pengetahuan">Pengetahuan</SelectItem>
-                    <SelectItem value="keterampilan_umum">Keterampilan Umum</SelectItem>
-                    <SelectItem value="keterampilan_khusus">Keterampilan Khusus</SelectItem>
-                  </SelectContent>
-                </Select>
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
                   <SelectTrigger className="w-[150px]">
+                    <Filter className="mr-2 h-4 w-4" />
                     <SelectValue placeholder="Filter Status" />
                   </SelectTrigger>
                   <SelectContent>
@@ -202,7 +330,28 @@ export default function CPLListPage() {
 
         {/* CPL List */}
         <div className="space-y-4">
-          {filteredCPLs.map((cpl) => {
+          {loading ? (
+            <Card>
+              <CardContent className="py-12">
+                <div className="flex flex-col items-center justify-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+                  <p className="mt-4 text-sm text-slate-500">Memuat data CPL...</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : error ? (
+            <Card>
+              <CardContent className="py-12">
+                <div className="text-center">
+                  <GraduationCap className="mx-auto h-12 w-12 text-red-300" />
+                  <h3 className="mt-4 text-lg font-medium text-red-900">{error}</h3>
+                  <Button className="mt-4" onClick={fetchCPLData}>
+                    Coba Lagi
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : filteredCPLs.map((cpl) => {
             const status = statusConfig[cpl.status]
             const StatusIcon = status.icon
             
@@ -213,12 +362,9 @@ export default function CPLListPage() {
                     <div className="flex items-start gap-4">
                       <div className={cn(
                         "flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl text-lg font-bold",
-                        cpl.aspek === 'sikap' ? "bg-pink-100 text-pink-700" :
-                        cpl.aspek === 'pengetahuan' ? "bg-blue-100 text-blue-700" :
-                        cpl.aspek === 'keterampilan_umum' ? "bg-amber-100 text-amber-700" :
-                        "bg-emerald-100 text-emerald-700"
+                        "bg-blue-100 text-blue-700"
                       )}>
-                        {cpl.kode.split('-')[1]}
+                        {cpl.kode.split('-')[1] || cpl.kode.substring(0, 3)}
                       </div>
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
@@ -227,10 +373,8 @@ export default function CPLListPage() {
                             <StatusIcon className="mr-1 h-3 w-3" />
                             {status.label}
                           </Badge>
-                          <Badge variant="outline">{aspekLabels[cpl.aspek]}</Badge>
-                          <Badge variant="outline">{cpl.kategori}</Badge>
                         </div>
-                        <h3 className="text-lg font-semibold text-slate-900">{cpl.judul}</h3>
+                        <h3 className="text-lg font-semibold text-slate-900">{cpl.nama}</h3>
                         <p className="text-sm text-slate-600 line-clamp-2">{cpl.deskripsi}</p>
                         <div className="flex items-center gap-4 text-xs text-slate-400">
                           <span>Versi: {cpl.version}</span>
@@ -253,19 +397,19 @@ export default function CPLListPage() {
                           </Link>
                         </DropdownMenuItem>
                         <DropdownMenuItem asChild>
-                          <Link href={`/kaprodi/cpl/${cpl.id}/edit`}>
+                          <Link href={`/kaprodi/cpl/edit/${cpl.id}`}>
                             <Edit className="mr-2 h-4 w-4" />
                             Edit
                           </Link>
                         </DropdownMenuItem>
                         {cpl.status === 'draft' && (
-                          <DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleStatusChange(cpl.id, 'published')}>
                             <Send className="mr-2 h-4 w-4" />
                             Publish
                           </DropdownMenuItem>
                         )}
                         {cpl.status === 'published' && (
-                          <DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleStatusChange(cpl.id, 'archived')}>
                             <Archive className="mr-2 h-4 w-4" />
                             Archive
                           </DropdownMenuItem>
@@ -289,18 +433,18 @@ export default function CPLListPage() {
             )
           })}
 
-          {filteredCPLs.length === 0 && (
+          {!loading && !error && filteredCPLs.length === 0 && (
             <Card>
               <CardContent className="py-12">
                 <div className="text-center">
                   <GraduationCap className="mx-auto h-12 w-12 text-slate-300" />
                   <h3 className="mt-4 text-lg font-medium text-slate-900">Tidak ada CPL ditemukan</h3>
                   <p className="mt-2 text-sm text-slate-500">
-                    {searchQuery || filterAspek !== 'all' || filterStatus !== 'all'
+                    {searchQuery || filterStatus !== 'all'
                       ? "Coba ubah filter pencarian Anda"
                       : "Mulai dengan membuat CPL baru"}
                   </p>
-                  {!searchQuery && filterAspek === 'all' && filterStatus === 'all' && (
+                  {!searchQuery && filterStatus === 'all' && (
                     <Button className="mt-4" asChild>
                       <Link href="/kaprodi/cpl/create">
                         <Plus className="h-4 w-4" />
@@ -325,12 +469,16 @@ export default function CPLListPage() {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
+              <Button variant="outline" onClick={() => setShowDeleteDialog(false)} disabled={deleting}>
                 Batal
               </Button>
-              <Button variant="destructive" onClick={() => setShowDeleteDialog(false)}>
-                <Trash2 className="h-4 w-4" />
-                Hapus
+              <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+                {deleting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+                {deleting ? 'Menghapus...' : 'Hapus'}
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -1,11 +1,12 @@
 "use client"
 
-import { ReactNode, useState } from "react"
+import { ReactNode, useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Sidebar } from "./sidebar"
 import { Header } from "./header"
 import { User } from "@/types"
 import { cn } from "@/lib/utils"
-import { mockUsers } from "@/lib/mock-data"
+import { authService } from "@/lib/api"
 
 export interface DashboardLayoutProps {
   children: ReactNode
@@ -14,14 +15,38 @@ export interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ children, user, unreadNotifications = 0 }: DashboardLayoutProps) {
+  const router = useRouter()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [currentUser, setCurrentUser] = useState<User | null>(user || null)
+  const [loading, setLoading] = useState(!user)
   
-  // Default to kaprodi user if not provided, but this should be avoided - always pass user prop
-  const currentUser = user || mockUsers[0]
-  
-  // Log warning if no user is provided to help identify problematic pages
-  if (!user) {
-    console.warn('DashboardLayout: No user prop provided. This may cause navigation issues.')
+  useEffect(() => {
+    if (!user) {
+      // Get user from localStorage/session
+      const storedUser = authService.getCurrentUser()
+      if (storedUser) {
+        setCurrentUser({
+          id: storedUser.id,
+          nama: storedUser.nama,
+          email: storedUser.email,
+          role: storedUser.role,
+          avatar: storedUser.avatar_url || undefined
+        })
+      } else {
+        // Redirect to login if no user found
+        router.push('/login')
+        return
+      }
+      setLoading(false)
+    }
+  }, [user, router])
+
+  if (loading || !currentUser) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+      </div>
+    )
   }
 
   return (

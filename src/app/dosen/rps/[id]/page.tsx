@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { 
   ArrowLeft,
@@ -19,7 +19,8 @@ import {
   ChevronUp,
   ClipboardList,
   Layers,
-  Send
+  Send,
+  Loader2
 } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -27,21 +28,63 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { mockRPS, mockUsers, mockCPLs } from "@/lib/mock-data"
+import { rpsService, cplService, RPS } from "@/lib/api"
 import { formatDate } from "@/lib/utils"
+
+interface CPLData {
+  id: string
+  kode: string
+  deskripsi: string
+  kategori?: string
+}
 
 export default function DosenRPSDetailPage() {
   const params = useParams()
   const router = useRouter()
   const rpsId = params.id as string
   
-  const rps = mockRPS.find(r => r.id === rpsId) || mockRPS[0]
-  const dosen = mockUsers.find(u => u.id === rps.dosenId)
-  
+  const [rps, setRps] = useState<RPS | null>(null)
+  const [cpls, setCpls] = useState<CPLData[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState("overview")
   const [expandedWeek, setExpandedWeek] = useState<number | null>(1)
   const [showSubmitDialog, setShowSubmitDialog] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const [rpsResponse, cplResponse] = await Promise.all([
+        rpsService.getById(rpsId),
+        cplService.getAll({ limit: 100 })
+      ])
+
+      if (rpsResponse.data) {
+        setRps(rpsResponse.data)
+      }
+
+      if (cplResponse.data) {
+        const cplData = Array.isArray(cplResponse.data) 
+          ? cplResponse.data 
+          : cplResponse.data.data || []
+        setCpls(cplData)
+      }
+    } catch (err) {
+      console.error("Error fetching RPS detail:", err)
+      setError("Gagal memuat detail RPS")
+    } finally {
+      setLoading(false)
+    }
+  }, [rpsId])
+
+  useEffect(() => {
+    if (rpsId) {
+      fetchData()
+    }
+  }, [rpsId, fetchData])
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -61,31 +104,52 @@ export default function DosenRPSDetailPage() {
   }
 
   const handleSubmit = async () => {
-    setIsSubmitting(true)
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    setIsSubmitting(false)
-    setShowSubmitDialog(false)
+    try {
+      setIsSubmitting(true)
+      await rpsService.submit(rpsId)
+      await fetchData()
+      setShowSubmitDialog(false)
+    } catch (err) {
+      console.error("Error submitting RPS:", err)
+      setError("Gagal mengajukan RPS untuk review")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
-  // Mock CPMK data
-  const cpmkList = [
-    { id: "cpmk-1", kode: "CPMK-1", deskripsi: "Mahasiswa mampu menjelaskan konsep dasar database dan model data relasional", cplId: "1" },
-    { id: "cpmk-2", kode: "CPMK-2", deskripsi: "Mahasiswa mampu merancang skema database menggunakan ERD dan normalisasi", cplId: "2" },
-    { id: "cpmk-3", kode: "CPMK-3", deskripsi: "Mahasiswa mampu mengimplementasikan query SQL untuk manipulasi data", cplId: "3" },
-    { id: "cpmk-4", kode: "CPMK-4", deskripsi: "Mahasiswa mampu menerapkan konsep transaction dan concurrency control", cplId: "3" }
-  ]
+  const getCPLById = (cplId: string): CPLData | undefined => {
+    return cpls.find(c => c.id === cplId)
+  }
 
-  // Mock pertemuan data
-  const pertemuanList = [
-    { minggu: 1, topik: "Pengantar Sistem Basis Data", cpmk: ["CPMK-1"], metode: "Ceramah, Diskusi", bobot: 5 },
-    { minggu: 2, topik: "Model Data Relasional", cpmk: ["CPMK-1"], metode: "Ceramah, Latihan", bobot: 5 },
-    { minggu: 3, topik: "Entity Relationship Diagram (ERD)", cpmk: ["CPMK-2"], metode: "Ceramah, Praktikum", bobot: 7 },
-    { minggu: 4, topik: "Normalisasi Database", cpmk: ["CPMK-2"], metode: "Ceramah, Praktikum", bobot: 8 },
-    { minggu: 5, topik: "SQL: Data Definition Language", cpmk: ["CPMK-3"], metode: "Praktikum", bobot: 7 },
-    { minggu: 6, topik: "SQL: Data Manipulation Language", cpmk: ["CPMK-3"], metode: "Praktikum", bobot: 8 },
-    { minggu: 7, topik: "SQL: Query Lanjutan", cpmk: ["CPMK-3"], metode: "Praktikum", bobot: 10 },
-    { minggu: 8, topik: "Ujian Tengah Semester", cpmk: ["CPMK-1", "CPMK-2", "CPMK-3"], metode: "Ujian", bobot: 20 },
-  ]
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (error || !rps) {
+    return (
+      <DashboardLayout>
+        <div className="flex flex-col items-center justify-center h-64 space-y-4">
+          <AlertCircle className="h-12 w-12 text-red-500" />
+          <p className="text-lg text-gray-600">{error || "RPS tidak ditemukan"}</p>
+          <Button onClick={() => router.push("/dosen/rps")}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Kembali ke Daftar RPS
+          </Button>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  const cpmkList = rps.cpmk || []
+  const pertemuanList = rps.rencana_pembelajaran || []
+  const bahanBacaanList = rps.bahan_bacaan || []
+  const bobotNilai = rps.bobot_nilai || { tugas: 0, uts: 0, uas: 0, kehadiran: 0, praktikum: 0 }
 
   return (
     <DashboardLayout>
@@ -102,15 +166,15 @@ export default function DosenRPSDetailPage() {
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">{rps.mataKuliahNama}</h1>
+              <h1 className="text-2xl font-bold text-gray-900">{rps.mata_kuliah_nama}</h1>
               {getStatusBadge(rps.status)}
             </div>
-            <p className="text-gray-600">Kode: {rps.kodeMK} • {rps.sks} SKS • Semester {rps.semester}</p>
-            {rps.reviewNotes && (
+            <p className="text-gray-600">Kode: {rps.kode_mk} • {rps.sks} SKS • Semester {rps.semester}</p>
+            {rps.review_notes && (
               <div className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
                 <p className="text-sm text-orange-800">
                   <AlertCircle className="h-4 w-4 inline mr-2" />
-                  <strong>Catatan Review:</strong> {rps.reviewNotes}
+                  <strong>Catatan Review:</strong> {rps.review_notes}
                 </p>
               </div>
             )}
@@ -154,7 +218,7 @@ export default function DosenRPSDetailPage() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Dosen Pengampu</p>
-                  <p className="font-medium text-gray-900">{dosen?.nama || rps.dosenNama}</p>
+                  <p className="font-medium text-gray-900">{rps.dosen_nama}</p>
                 </div>
               </div>
             </CardContent>
@@ -168,7 +232,7 @@ export default function DosenRPSDetailPage() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Tahun Akademik</p>
-                  <p className="font-medium text-gray-900">{rps.tahunAkademik}</p>
+                  <p className="font-medium text-gray-900">{rps.tahun_akademik}</p>
                 </div>
               </div>
             </CardContent>
@@ -182,7 +246,7 @@ export default function DosenRPSDetailPage() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Terakhir Update</p>
-                  <p className="font-medium text-gray-900">{formatDate(rps.updatedAt)}</p>
+                  <p className="font-medium text-gray-900">{formatDate(rps.updated_at)}</p>
                 </div>
               </div>
             </CardContent>
@@ -233,7 +297,7 @@ export default function DosenRPSDetailPage() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-gray-600 leading-relaxed">
-                    {rps.deskripsi}
+                    {rps.deskripsi || rps.deskripsi_mk || "Belum ada deskripsi"}
                   </p>
                 </CardContent>
               </Card>
@@ -244,7 +308,7 @@ export default function DosenRPSDetailPage() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-gray-600 leading-relaxed">
-                    {rps.tujuan}
+                    {rps.tujuan || rps.capaian_pembelajaran || "Belum ada tujuan"}
                   </p>
                 </CardContent>
               </Card>
@@ -256,24 +320,32 @@ export default function DosenRPSDetailPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2">
-                  {rps.metode.map((m, idx) => (
-                    <Badge key={idx} variant="outline" className="py-1.5">{m}</Badge>
-                  ))}
+                  {(rps.metode || rps.metode_pembelajaran || []).length > 0 ? (
+                    (rps.metode || rps.metode_pembelajaran || []).map((m, idx) => (
+                      <Badge key={idx} variant="outline" className="py-1.5">{m}</Badge>
+                    ))
+                  ) : (
+                    <p className="text-gray-500">Belum ada metode pembelajaran</p>
+                  )}
                 </div>
               </CardContent>
             </Card>
 
-            {rps.bahanBacaan.length > 0 && (
+            {bahanBacaanList.length > 0 && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg">Referensi</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ul className="space-y-3">
-                    {rps.bahanBacaan.map((bahan, idx) => (
+                    {bahanBacaanList.map((bahan, idx) => (
                       <li key={bahan.id} className="flex items-start gap-3">
                         <span className="flex-shrink-0 w-6 h-6 bg-green-100 text-green-700 rounded text-sm flex items-center justify-center font-medium">{idx + 1}</span>
-                        <span className="text-gray-600">{bahan.penulis} ({bahan.tahun}). {bahan.judul}.</span>
+                        <span className="text-gray-600">
+                          {bahan.penulis && `${bahan.penulis} `}
+                          {bahan.tahun && `(${bahan.tahun}). `}
+                          {bahan.judul}.
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -291,24 +363,28 @@ export default function DosenRPSDetailPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {cpmkList.map((cpmk) => {
-                  const relatedCPL = mockCPLs.find(c => c.id === cpmk.cplId)
+                  const relatedCPLs = (cpmk.cpl_ids || []).map(id => getCPLById(id)).filter(Boolean)
                   return (
                     <div key={cpmk.id} className="p-4 bg-gray-50 rounded-lg border">
                       <div className="flex items-start justify-between gap-4">
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
                             <Badge className="bg-green-100 text-green-700">{cpmk.kode}</Badge>
-                            {relatedCPL && (
-                              <Badge variant="outline" className="text-xs">
-                                → {relatedCPL.kode}
+                            {relatedCPLs.map((cpl) => cpl && (
+                              <Badge key={cpl.id} variant="outline" className="text-xs">
+                                → {cpl.kode}
                               </Badge>
-                            )}
+                            ))}
                           </div>
                           <p className="text-gray-700">{cpmk.deskripsi}</p>
-                          {relatedCPL && (
-                            <p className="text-sm text-gray-500">
-                              <span className="font-medium">CPL Terkait:</span> {relatedCPL.deskripsi.slice(0, 100)}...
-                            </p>
+                          {relatedCPLs.length > 0 && (
+                            <div className="space-y-1">
+                              {relatedCPLs.map((cpl) => cpl && (
+                                <p key={cpl.id} className="text-sm text-gray-500">
+                                  <span className="font-medium">{cpl.kode}:</span> {cpl.deskripsi.slice(0, 100)}...
+                                </p>
+                              ))}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -329,57 +405,59 @@ export default function DosenRPSDetailPage() {
               <CardContent className="space-y-3">
                 {pertemuanList.map((pertemuan) => (
                   <div 
-                    key={pertemuan.minggu}
+                    key={pertemuan.id}
                     className={`
                       border rounded-lg overflow-hidden transition-all
-                      ${pertemuan.minggu === 8 ? "border-green-300 bg-green-50" : ""}
+                      ${pertemuan.pertemuan === 8 || pertemuan.pertemuan === 16 ? "border-green-300 bg-green-50" : ""}
                     `}
                   >
                     <button
-                      onClick={() => setExpandedWeek(expandedWeek === pertemuan.minggu ? null : pertemuan.minggu)}
+                      onClick={() => setExpandedWeek(expandedWeek === pertemuan.pertemuan ? null : pertemuan.pertemuan)}
                       className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
                     >
                       <div className="flex items-center gap-4">
                         <div className={`
                           w-10 h-10 rounded-lg flex items-center justify-center font-bold text-sm
-                          ${pertemuan.minggu === 8 
+                          ${pertemuan.pertemuan === 8 || pertemuan.pertemuan === 16
                             ? "bg-green-600 text-white" 
                             : "bg-gray-100 text-gray-700"
                           }
                         `}>
-                          {pertemuan.minggu}
+                          {pertemuan.pertemuan}
                         </div>
                         <div className="text-left">
-                          <p className="font-medium text-gray-900">{pertemuan.topik}</p>
+                          <p className="font-medium text-gray-900">{pertemuan.topik || pertemuan.materi || `Pertemuan ${pertemuan.pertemuan}`}</p>
                           <div className="flex items-center gap-2 mt-1">
-                            {pertemuan.cpmk.map(c => (
+                            {(pertemuan.cpmk_ids || []).map(c => (
                               <Badge key={c} variant="outline" className="text-xs">{c}</Badge>
                             ))}
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
-                        <Badge variant="outline">{pertemuan.bobot}%</Badge>
-                        {expandedWeek === pertemuan.minggu 
+                        {pertemuan.bobot_nilai && (
+                          <Badge variant="outline">{pertemuan.bobot_nilai}%</Badge>
+                        )}
+                        {expandedWeek === pertemuan.pertemuan 
                           ? <ChevronUp className="h-4 w-4 text-gray-400" />
                           : <ChevronDown className="h-4 w-4 text-gray-400" />
                         }
                       </div>
                     </button>
-                    {expandedWeek === pertemuan.minggu && (
+                    {expandedWeek === pertemuan.pertemuan && (
                       <div className="px-4 pb-4 border-t bg-gray-50">
                         <div className="grid gap-4 md:grid-cols-3 pt-4">
                           <div>
                             <p className="text-xs font-medium text-gray-500 uppercase mb-1">Metode Pembelajaran</p>
-                            <p className="text-gray-900">{pertemuan.metode}</p>
+                            <p className="text-gray-900">{pertemuan.metode || pertemuan.metode_pembelajaran || "-"}</p>
                           </div>
                           <div>
                             <p className="text-xs font-medium text-gray-500 uppercase mb-1">Indikator</p>
-                            <p className="text-gray-900">Mahasiswa mampu memahami dan menerapkan {pertemuan.topik.toLowerCase()}</p>
+                            <p className="text-gray-900">{pertemuan.indikator || pertemuan.kemampuan_akhir || "-"}</p>
                           </div>
                           <div>
                             <p className="text-xs font-medium text-gray-500 uppercase mb-1">Bobot Penilaian</p>
-                            <p className="text-gray-900">{pertemuan.bobot}% dari total nilai</p>
+                            <p className="text-gray-900">{pertemuan.bobot_nilai || 0}% dari total nilai</p>
                           </div>
                         </div>
                       </div>
@@ -403,46 +481,48 @@ export default function DosenRPSDetailPage() {
                     <div className="w-32 text-sm font-medium text-gray-700">Tugas</div>
                     <div className="flex-1">
                       <div className="h-8 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-green-500 rounded-full" style={{ width: `${rps.bobotNilai.tugas}%` }} />
+                        <div className="h-full bg-green-500 rounded-full" style={{ width: `${bobotNilai.tugas}%` }} />
                       </div>
                     </div>
-                    <div className="w-12 text-right font-bold text-green-600">{rps.bobotNilai.tugas}%</div>
+                    <div className="w-12 text-right font-bold text-green-600">{bobotNilai.tugas}%</div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <div className="w-32 text-sm font-medium text-gray-700">Praktikum</div>
-                    <div className="flex-1">
-                      <div className="h-8 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-500 rounded-full" style={{ width: `${rps.bobotNilai.praktikum}%` }} />
+                  {bobotNilai.praktikum !== undefined && bobotNilai.praktikum > 0 && (
+                    <div className="flex items-center gap-4">
+                      <div className="w-32 text-sm font-medium text-gray-700">Praktikum</div>
+                      <div className="flex-1">
+                        <div className="h-8 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-blue-500 rounded-full" style={{ width: `${bobotNilai.praktikum}%` }} />
+                        </div>
                       </div>
+                      <div className="w-12 text-right font-bold text-blue-600">{bobotNilai.praktikum}%</div>
                     </div>
-                    <div className="w-12 text-right font-bold text-blue-600">{rps.bobotNilai.praktikum}%</div>
-                  </div>
+                  )}
                   <div className="flex items-center gap-4">
                     <div className="w-32 text-sm font-medium text-gray-700">UTS</div>
                     <div className="flex-1">
                       <div className="h-8 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-purple-500 rounded-full" style={{ width: `${rps.bobotNilai.uts}%` }} />
+                        <div className="h-full bg-purple-500 rounded-full" style={{ width: `${bobotNilai.uts}%` }} />
                       </div>
                     </div>
-                    <div className="w-12 text-right font-bold text-purple-600">{rps.bobotNilai.uts}%</div>
+                    <div className="w-12 text-right font-bold text-purple-600">{bobotNilai.uts}%</div>
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="w-32 text-sm font-medium text-gray-700">UAS</div>
                     <div className="flex-1">
                       <div className="h-8 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-orange-500 rounded-full" style={{ width: `${rps.bobotNilai.uas}%` }} />
+                        <div className="h-full bg-orange-500 rounded-full" style={{ width: `${bobotNilai.uas}%` }} />
                       </div>
                     </div>
-                    <div className="w-12 text-right font-bold text-orange-600">{rps.bobotNilai.uas}%</div>
+                    <div className="w-12 text-right font-bold text-orange-600">{bobotNilai.uas}%</div>
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="w-32 text-sm font-medium text-gray-700">Kehadiran</div>
                     <div className="flex-1">
                       <div className="h-8 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-gray-500 rounded-full" style={{ width: `${rps.bobotNilai.kehadiran}%` }} />
+                        <div className="h-full bg-gray-500 rounded-full" style={{ width: `${bobotNilai.kehadiran}%` }} />
                       </div>
                     </div>
-                    <div className="w-12 text-right font-bold text-gray-600">{rps.bobotNilai.kehadiran}%</div>
+                    <div className="w-12 text-right font-bold text-gray-600">{bobotNilai.kehadiran}%</div>
                   </div>
                 </div>
               </CardContent>

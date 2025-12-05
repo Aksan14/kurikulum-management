@@ -33,7 +33,7 @@ import {
   EyeOff,
   Info
 } from 'lucide-react'
-import { mockUsers } from '@/lib/mock-data'
+
 
 interface BackupItem {
   id: string
@@ -99,7 +99,6 @@ const mockBackups: BackupItem[] = [
 ]
 
 export default function BackupRestorePage() {
-  const user = mockUsers[0] // Kaprodi user
   const [backups, setBackups] = useState<BackupItem[]>(mockBackups)
   const [backupProgress, setBackupProgress] = useState(0)
   const [isBackingUp, setIsBackingUp] = useState(false)
@@ -230,7 +229,7 @@ export default function BackupRestorePage() {
   }, 0)
 
   return (
-    <DashboardLayout user={user}>
+    <DashboardLayout>
       <div className="space-y-8">
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

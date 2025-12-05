@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -19,39 +20,124 @@ import {
   Save, 
   Send,
   GraduationCap,
-  AlertCircle
+  AlertCircle,
+  Loader2
 } from "lucide-react"
-import { mockUsers } from "@/lib/mock-data"
 import Link from "next/link"
+import { useAuth } from "@/contexts/AuthContext"
+import { cplService, CreateCPLRequest } from "@/lib/api/cpl"
 
 export default function CreateCPLPage() {
-  const user = mockUsers[0]
+  const router = useRouter()
+  const { user: authUser } = useAuth()
   const [formData, setFormData] = useState({
     kode: '',
-    judul: '',
-    deskripsi: '',
-    aspek: '',
-    kategori: ''
+    nama: '',
+    deskripsi: ''
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
-  const handleSubmit = (e: React.FormEvent, action: 'draft' | 'publish') => {
-    e.preventDefault()
-    // Validation logic here
+  // User for layout
+  const user = authUser ? {
+    id: authUser.id,
+    nama: authUser.nama,
+    email: authUser.email,
+    role: authUser.role as "kaprodi" | "dosen" | "admin",
+    avatar: "/avatars/default.png",
+  } : {
+    id: '',
+    nama: 'Guest',
+    email: '',
+    role: 'dosen' as const,
+    avatar: '/avatars/default.png'
+  }
+
+  // Clear error when user starts typing
+  const handleInputChange = (field: string, value: string) => {
+    setFormData({ ...formData, [field]: value })
+    // Clear error for this field when user starts typing
+    if (errors[field]) {
+      setErrors({ ...errors, [field]: '' })
+    }
+  }
+
+  const validateForm = () => {
     const newErrors: Record<string, string> = {}
-    if (!formData.kode) newErrors.kode = 'Kode CPL wajib diisi'
-    if (!formData.judul) newErrors.judul = 'Judul wajib diisi'
-    if (!formData.deskripsi) newErrors.deskripsi = 'Deskripsi wajib diisi'
-    if (!formData.aspek) newErrors.aspek = 'Aspek wajib dipilih'
-    if (!formData.kategori) newErrors.kategori = 'Kategori wajib dipilih'
+    
+    // Kode CPL validation
+    if (!formData.kode.trim()) {
+      newErrors.kode = 'Kode CPL wajib diisi'
+    } else if (formData.kode.trim().length < 2) {
+      newErrors.kode = 'Kode CPL minimal 2 karakter, contoh: CPL-01'
+    } else if (!/^[A-Za-z0-9\-]+$/.test(formData.kode.trim())) {
+      newErrors.kode = 'Kode CPL hanya boleh berisi huruf, angka, dan tanda hubung (-)'
+    }
 
+    // Nama CPL validation
+    if (!formData.nama.trim()) {
+      newErrors.nama = 'Nama CPL wajib diisi'
+    } else if (formData.nama.trim().length < 3) {
+      newErrors.nama = 'Nama CPL minimal 3 karakter, contoh: Mampu menganalisis masalah'
+    } else if (/^[\-\s]+$/.test(formData.nama.trim())) {
+      newErrors.nama = 'Nama CPL harus berisi teks yang valid'
+    }
+
+    // Deskripsi validation
+    if (!formData.deskripsi.trim()) {
+      newErrors.deskripsi = 'Deskripsi wajib diisi'
+    } else if (formData.deskripsi.trim().length < 10) {
+      newErrors.deskripsi = 'Deskripsi minimal 10 karakter untuk menjelaskan capaian pembelajaran'
+    } else if (/^[\-\s]+$/.test(formData.deskripsi.trim())) {
+      newErrors.deskripsi = 'Deskripsi harus berisi penjelasan yang valid'
+    }
+
+    return newErrors
+  }
+
+  const handleSubmit = async (e: React.FormEvent, action: 'draft' | 'published') => {
+    e.preventDefault()
+    
+    const newErrors = validateForm()
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors)
       return
     }
 
-    // Submit logic here
-    console.log('Submitting:', formData, action)
+    setIsSubmitting(true)
+    setSubmitError(null)
+    setErrors({})
+
+    try {
+      const requestData: CreateCPLRequest = {
+        kode: formData.kode.trim(),
+        nama: formData.nama.trim(),
+        deskripsi: formData.deskripsi.trim(),
+        status: action
+      }
+
+      const response = await cplService.create(requestData)
+      
+      if (response.success) {
+        router.push('/kaprodi/cpl')
+      } else {
+        // Parse error message from API
+        const errorMsg = response.message || response.error || 'Gagal membuat CPL'
+        setSubmitError(errorMsg)
+      }
+    } catch (err: unknown) {
+      console.error('Error creating CPL:', err)
+      // Handle different error types
+      if (err && typeof err === 'object' && 'message' in err) {
+        const errorObj = err as { message: string; data?: { message?: string } }
+        setSubmitError(errorObj.data?.message || errorObj.message || 'Terjadi kesalahan saat membuat CPL')
+      } else {
+        setSubmitError('Terjadi kesalahan saat membuat CPL. Pastikan data yang diisi valid.')
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -94,7 +180,7 @@ export default function CreateCPLPage() {
                   id="kode"
                   placeholder="Contoh: CPL-01"
                   value={formData.kode}
-                  onChange={(e) => setFormData({ ...formData, kode: e.target.value })}
+                  onChange={(e) => handleInputChange('kode', e.target.value)}
                   className={errors.kode ? 'border-red-500' : ''}
                 />
                 {errors.kode && (
@@ -108,22 +194,22 @@ export default function CreateCPLPage() {
                 </p>
               </div>
 
-              {/* Judul */}
+              {/* Nama CPL */}
               <div className="grid gap-2">
-                <Label htmlFor="judul">
-                  Judul <span className="text-red-500">*</span>
+                <Label htmlFor="nama">
+                  Nama CPL <span className="text-red-500">*</span>
                 </Label>
                 <Input
-                  id="judul"
-                  placeholder="Contoh: Kemampuan Berpikir Kritis"
-                  value={formData.judul}
-                  onChange={(e) => setFormData({ ...formData, judul: e.target.value })}
-                  className={errors.judul ? 'border-red-500' : ''}
+                  id="nama"
+                  placeholder="Contoh: Mampu merancang dan mengembangkan sistem informasi"
+                  value={formData.nama}
+                  onChange={(e) => handleInputChange('nama', e.target.value)}
+                  className={errors.nama ? 'border-red-500' : ''}
                 />
-                {errors.judul && (
+                {errors.nama && (
                   <p className="flex items-center gap-1 text-sm text-red-500">
                     <AlertCircle className="h-4 w-4" />
-                    {errors.judul}
+                    {errors.nama}
                   </p>
                 )}
               </div>
@@ -138,7 +224,7 @@ export default function CreateCPLPage() {
                   placeholder="Deskripsikan capaian pembelajaran lulusan secara lengkap..."
                   rows={4}
                   value={formData.deskripsi}
-                  onChange={(e) => setFormData({ ...formData, deskripsi: e.target.value })}
+                  onChange={(e) => handleInputChange('deskripsi', e.target.value)}
                   className={errors.deskripsi ? 'border-red-500' : ''}
                 />
                 {errors.deskripsi && (
@@ -148,62 +234,8 @@ export default function CreateCPLPage() {
                   </p>
                 )}
                 <p className="text-sm text-slate-500">
-                  Jelaskan kompetensi yang diharapkan mahasiswa setelah lulus
+                  Jelaskan kompetensi yang diharapkan mahasiswa setelah lulus (minimal 10 karakter)
                 </p>
-              </div>
-
-              {/* Aspek dan Kategori */}
-              <div className="grid gap-6 md:grid-cols-2">
-                <div className="grid gap-2">
-                  <Label>
-                    Aspek <span className="text-red-500">*</span>
-                  </Label>
-                  <Select
-                    value={formData.aspek}
-                    onValueChange={(value) => setFormData({ ...formData, aspek: value })}
-                  >
-                    <SelectTrigger className={errors.aspek ? 'border-red-500' : ''}>
-                      <SelectValue placeholder="Pilih aspek CPL" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="sikap">Sikap</SelectItem>
-                      <SelectItem value="pengetahuan">Pengetahuan</SelectItem>
-                      <SelectItem value="keterampilan_umum">Keterampilan Umum</SelectItem>
-                      <SelectItem value="keterampilan_khusus">Keterampilan Khusus</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {errors.aspek && (
-                    <p className="flex items-center gap-1 text-sm text-red-500">
-                      <AlertCircle className="h-4 w-4" />
-                      {errors.aspek}
-                    </p>
-                  )}
-                </div>
-
-                <div className="grid gap-2">
-                  <Label>
-                    Kategori <span className="text-red-500">*</span>
-                  </Label>
-                  <Select
-                    value={formData.kategori}
-                    onValueChange={(value) => setFormData({ ...formData, kategori: value })}
-                  >
-                    <SelectTrigger className={errors.kategori ? 'border-red-500' : ''}>
-                      <SelectValue placeholder="Pilih kategori" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Kompetensi Utama">Kompetensi Utama</SelectItem>
-                      <SelectItem value="Kompetensi Pendukung">Kompetensi Pendukung</SelectItem>
-                      <SelectItem value="Kompetensi Lainnya">Kompetensi Lainnya</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {errors.kategori && (
-                    <p className="flex items-center gap-1 text-sm text-red-500">
-                      <AlertCircle className="h-4 w-4" />
-                      {errors.kategori}
-                    </p>
-                  )}
-                </div>
               </div>
             </CardContent>
           </Card>
@@ -228,20 +260,40 @@ export default function CreateCPLPage() {
             </CardContent>
           </Card>
 
+          {/* Submit Error */}
+          {submitError && (
+            <Card className="mt-6 border-red-200 bg-red-50">
+              <CardContent className="pt-6">
+                <div className="flex gap-4">
+                  <AlertCircle className="h-5 w-5 text-red-600" />
+                  <p className="text-sm text-red-800">{submitError}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Action Buttons */}
           <div className="mt-6 flex items-center justify-between">
-            <Button type="button" variant="outline" asChild>
+            <Button type="button" variant="outline" asChild disabled={isSubmitting}>
               <Link href="/kaprodi/cpl">
                 Batal
               </Link>
             </Button>
             <div className="flex gap-3">
-              <Button type="submit" variant="outline">
-                <Save className="h-4 w-4" />
+              <Button type="submit" variant="outline" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
                 Simpan sebagai Draft
               </Button>
-              <Button type="button" onClick={(e) => handleSubmit(e, 'publish')}>
-                <Send className="h-4 w-4" />
+              <Button type="button" onClick={(e) => handleSubmit(e, 'published')} disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
                 Simpan & Publish
               </Button>
             </div>

@@ -1,24 +1,35 @@
 import { Badge } from "@/components/ui/badge"
 import { cn, formatDateTime } from "@/lib/utils"
 import { CPLAssignment } from "@/types"
-import { UserCheck, Clock, CheckCircle, XCircle, Hourglass } from "lucide-react"
+import { UserCheck, Clock, CheckCircle, XCircle, Hourglass, Ban } from "lucide-react"
 
 interface AssignmentListProps {
   items: CPLAssignment[]
 }
 
-const statusConfig = {
-  assigned: { label: 'Ditugaskan', variant: 'warning' as const, icon: Hourglass },
-  accepted: { label: 'Diterima', variant: 'info' as const, icon: UserCheck },
-  rejected: { label: 'Ditolak', variant: 'danger' as const, icon: XCircle },
-  done: { label: 'Selesai', variant: 'success' as const, icon: CheckCircle },
+const statusConfig: Record<string, { label: string; variant: 'warning' | 'info' | 'danger' | 'success' | 'default'; icon: typeof Hourglass }> = {
+  assigned: { label: 'Ditugaskan', variant: 'warning', icon: Hourglass },
+  accepted: { label: 'Diterima', variant: 'info', icon: UserCheck },
+  rejected: { label: 'Ditolak', variant: 'danger', icon: XCircle },
+  done: { label: 'Selesai', variant: 'success', icon: CheckCircle },
+  cancelled: { label: 'Dibatalkan', variant: 'default', icon: Ban },
 }
 
+const defaultStatus = { label: 'Unknown', variant: 'default' as const, icon: Hourglass }
+
 export function AssignmentList({ items }: AssignmentListProps) {
+  if (!items || items.length === 0) {
+    return (
+      <div className="text-center py-8 text-slate-500">
+        Tidak ada penugasan
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-3">
       {items.map((assignment) => {
-        const status = statusConfig[assignment.status]
+        const status = statusConfig[assignment.status] || defaultStatus
         const StatusIcon = status.icon
         
         return (

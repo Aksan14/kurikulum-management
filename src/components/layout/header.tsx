@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { User as UserType } from "@/types"
+import { useAuth } from "@/contexts"
 
 interface HeaderProps {
   user: UserType
@@ -22,12 +23,22 @@ interface HeaderProps {
 }
 
 export function Header({ user, unreadNotifications = 0 }: HeaderProps) {
+  const { logout } = useAuth()
+  
   const initials = user.nama
     .split(" ")
     .map((n) => n[0])
     .join("")
     .slice(0, 2)
     .toUpperCase()
+
+  const handleLogout = async () => {
+    try {
+      await logout()
+    } catch (error) {
+      console.error('Logout failed:', error)
+    }
+  }
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/80 px-6 backdrop-blur-md">
@@ -92,7 +103,10 @@ export function Header({ user, unreadNotifications = 0 }: HeaderProps) {
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-red-600 focus:bg-red-50 focus:text-red-700">
+            <DropdownMenuItem 
+              className="text-red-600 focus:bg-red-50 focus:text-red-700 cursor-pointer"
+              onClick={handleLogout}
+            >
               <LogOut className="mr-2 h-4 w-4" />
               Keluar
             </DropdownMenuItem>
