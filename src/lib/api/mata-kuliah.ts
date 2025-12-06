@@ -63,7 +63,7 @@ export interface AssignDosenRequest {
 
 // Unassign Dosen Request
 export interface UnassignDosenRequest {
-  type: 'pengampu' | 'koordinator' | 'both';
+  type: 'pengampu' | 'koordinator' | 'all';
 }
 
 export interface MataKuliahListParams {

@@ -101,7 +101,7 @@ export default function MataKuliahPage() {
 
   // Unassign dosen state
   const [showUnassignDialog, setShowUnassignDialog] = useState(false)
-  const [unassignType, setUnassignType] = useState<'pengampu' | 'koordinator' | 'both'>('pengampu')
+  const [unassignType, setUnassignType] = useState<'pengampu' | 'koordinator' | 'all'>('pengampu')
   const [unassigning, setUnassigning] = useState(false)
 
   // Fetch dosen list
@@ -311,7 +311,7 @@ export default function MataKuliahPage() {
     setSelectedMK(mk)
     // Set default type based on what's assigned
     if (mk.dosenPengampu && mk.koordinator) {
-      setUnassignType('both')
+      setUnassignType('all')
     } else if (mk.dosenPengampu) {
       setUnassignType('pengampu')
     } else if (mk.koordinator) {
@@ -882,7 +882,7 @@ export default function MataKuliahPage() {
             {/* Unassign Type Selection */}
             <div className="space-y-2">
               <Label>Pilih yang akan di-unassign</Label>
-              <Select value={unassignType} onValueChange={(value) => setUnassignType(value as 'pengampu' | 'koordinator' | 'both')}>
+              <Select value={unassignType} onValueChange={(value) => setUnassignType(value as 'pengampu' | 'koordinator' | 'all')}>
                 <SelectTrigger>
                   <SelectValue placeholder="Pilih tipe" />
                 </SelectTrigger>
@@ -891,7 +891,7 @@ export default function MataKuliahPage() {
                     <>
                       <SelectItem value="pengampu">Dosen Pengampu saja</SelectItem>
                       <SelectItem value="koordinator">Koordinator saja</SelectItem>
-                      <SelectItem value="both">Keduanya (Pengampu & Koordinator)</SelectItem>
+                      <SelectItem value="all">Keduanya (Pengampu & Koordinator)</SelectItem>
                     </>
                   ) : selectedMK?.dosenPengampu ? (
                     <SelectItem value="pengampu">Dosen Pengampu</SelectItem>
