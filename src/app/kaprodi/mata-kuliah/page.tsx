@@ -18,7 +18,10 @@ import {
   Eye,
   Loader2,
   RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  UserPlus,
+  UserMinus,
+  UserCheck
 } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -31,7 +34,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/contexts/AuthContext"
-import { mataKuliahService, MataKuliah, CreateMataKuliahRequest } from "@/lib/api/mata-kuliah"
+import { mataKuliahService, MataKuliah, CreateMataKuliahRequest, AssignDosenRequest, UnassignDosenRequest } from "@/lib/api/mata-kuliah"
+import { usersService, User } from "@/lib/api/users"
 import Link from "next/link"
 
 // Display interface for mata kuliah
@@ -44,7 +48,8 @@ interface DisplayMataKuliah {
   jenis: string;
   prasyarat: string[];
   deskripsi: string;
-  dosenPengampu: string[];
+  dosenPengampu: { id: string; nama: string } | null;
+  koordinator: { id: string; nama: string } | null;
   cplTerkait: string[];
   status: string;
 }
@@ -81,6 +86,39 @@ export default function MataKuliahPage() {
   const [selectedMK, setSelectedMK] = useState<DisplayMataKuliah | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  // Dosen list for assignment
+  const [dosenList, setDosenList] = useState<User[]>([])
+  const [loadingDosen, setLoadingDosen] = useState(false)
+
+  // Assign dosen state
+  const [showAssignDialog, setShowAssignDialog] = useState(false)
+  const [assignForm, setAssignForm] = useState({
+    dosen_pengampu_id: '',
+    koordinator_id: ''
+  })
+  const [assigning, setAssigning] = useState(false)
+  const [assignError, setAssignError] = useState<string | null>(null)
+
+  // Unassign dosen state
+  const [showUnassignDialog, setShowUnassignDialog] = useState(false)
+  const [unassignType, setUnassignType] = useState<'pengampu' | 'koordinator' | 'both'>('pengampu')
+  const [unassigning, setUnassigning] = useState(false)
+
+  // Fetch dosen list
+  const fetchDosenList = useCallback(async () => {
+    setLoadingDosen(true)
+    try {
+      const response = await usersService.getDosen()
+      if (response.success && response.data?.data) {
+        setDosenList(response.data.data)
+      }
+    } catch (err) {
+      console.error('Error fetching dosen:', err)
+    } finally {
+      setLoadingDosen(false)
+    }
+  }, [])
+
   // Fetch data
   const fetchMataKuliah = useCallback(async () => {
     setLoading(true)
@@ -108,7 +146,8 @@ export default function MataKuliahPage() {
             jenis: jenisDisplay,
             prasyarat: mk.prasyarat || [],
             deskripsi: mk.deskripsi || '',
-            dosenPengampu: mk.dosen_pengampu ? [mk.dosen_pengampu.nama] : [],
+            dosenPengampu: mk.dosen_pengampu ? { id: mk.dosen_pengampu.id, nama: mk.dosen_pengampu.nama } : null,
+            koordinator: mk.koordinator ? { id: mk.koordinator.id, nama: mk.koordinator.nama } : null,
             cplTerkait: [],
             status: mk.status
           }
@@ -128,7 +167,8 @@ export default function MataKuliahPage() {
 
   useEffect(() => {
     fetchMataKuliah()
-  }, [fetchMataKuliah])
+    fetchDosenList()
+  }, [fetchMataKuliah, fetchDosenList])
 
   // Filter logic
   const filteredMataKuliah = mataKuliahList.filter(mk => {
@@ -197,6 +237,87 @@ export default function MataKuliahPage() {
     } finally {
       setDeleting(false)
     }
+  }
+
+  // Handle assign dosen
+  const handleAssignDosen = async () => {
+    if (!selectedMK) return
+    if (!assignForm.dosen_pengampu_id && !assignForm.koordinator_id) {
+      setAssignError('Minimal satu dosen harus dipilih (pengampu atau koordinator)')
+      return
+    }
+
+    setAssigning(true)
+    setAssignError(null)
+    try {
+      const data: AssignDosenRequest = {}
+      if (assignForm.dosen_pengampu_id) data.dosen_pengampu_id = assignForm.dosen_pengampu_id
+      if (assignForm.koordinator_id) data.koordinator_id = assignForm.koordinator_id
+
+      const response = await mataKuliahService.assignDosen(selectedMK.id, data)
+      
+      // Handle response - check for success or data presence
+      if (response.success || response.data) {
+        setShowAssignDialog(false)
+        setAssignForm({ dosen_pengampu_id: '', koordinator_id: '' })
+        setSelectedMK(null)
+        fetchMataKuliah()
+      } else {
+        setAssignError(response.message || 'Gagal menugaskan dosen')
+      }
+    } catch (err) {
+      console.error('Error assigning dosen:', err)
+      setAssignError('Terjadi kesalahan saat menugaskan dosen')
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  // Handle unassign dosen
+  const handleUnassignDosen = async () => {
+    if (!selectedMK) return
+
+    setUnassigning(true)
+    try {
+      const data: UnassignDosenRequest = { type: unassignType }
+      const response = await mataKuliahService.unassignDosen(selectedMK.id, data)
+      
+      // Handle response - check for success or data presence
+      if (response.success || response.data) {
+        setShowUnassignDialog(false)
+        setSelectedMK(null)
+        fetchMataKuliah()
+      }
+    } catch (err) {
+      console.error('Error unassigning dosen:', err)
+    } finally {
+      setUnassigning(false)
+    }
+  }
+
+  // Open assign dialog with pre-filled values
+  const openAssignDialog = (mk: DisplayMataKuliah) => {
+    setSelectedMK(mk)
+    setAssignForm({
+      dosen_pengampu_id: mk.dosenPengampu?.id || '',
+      koordinator_id: mk.koordinator?.id || ''
+    })
+    setAssignError(null)
+    setShowAssignDialog(true)
+  }
+
+  // Open unassign dialog
+  const openUnassignDialog = (mk: DisplayMataKuliah) => {
+    setSelectedMK(mk)
+    // Set default type based on what's assigned
+    if (mk.dosenPengampu && mk.koordinator) {
+      setUnassignType('both')
+    } else if (mk.dosenPengampu) {
+      setUnassignType('pengampu')
+    } else if (mk.koordinator) {
+      setUnassignType('koordinator')
+    }
+    setShowUnassignDialog(true)
   }
 
   return (
@@ -362,10 +483,6 @@ export default function MataKuliahPage() {
                                   <Clock className="h-4 w-4" />
                                   {mk.sks} SKS - Semester {mk.semester}
                                 </span>
-                                <span className="flex items-center gap-1">
-                                  <Users className="h-4 w-4" />
-                                  {mk.dosenPengampu.length} Dosen
-                                </span>
                               </div>
                             </div>
                             
@@ -376,12 +493,35 @@ export default function MataKuliahPage() {
                               </div>
                             )}
                             
-                            {mk.dosenPengampu.length > 0 && (
-                              <div>
-                                <span className="text-sm font-medium text-gray-700">Dosen Pengampu: </span>
-                                <span className="text-sm text-gray-600">{mk.dosenPengampu.join(", ")}</span>
-                              </div>
-                            )}
+                            {/* Dosen Pengampu */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-gray-700">Dosen Pengampu: </span>
+                              {mk.dosenPengampu ? (
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                  <UserCheck className="h-3 w-3 mr-1" />
+                                  {mk.dosenPengampu.nama}
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-gray-50 text-gray-500 border-gray-200">
+                                  Belum ditugaskan
+                                </Badge>
+                              )}
+                            </div>
+
+                            {/* Koordinator */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-gray-700">Koordinator: </span>
+                              {mk.koordinator ? (
+                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                  <UserCheck className="h-3 w-3 mr-1" />
+                                  {mk.koordinator.nama}
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-gray-50 text-gray-500 border-gray-200">
+                                  Belum ditugaskan
+                                </Badge>
+                              )}
+                            </div>
                             
                             {mk.cplTerkait.length > 0 && (
                               <div className="flex flex-wrap gap-1">
@@ -397,7 +537,31 @@ export default function MataKuliahPage() {
                         </div>
                       </div>
 
-                      <div className="flex gap-2 lg:flex-shrink-0">
+                      <div className="flex flex-wrap gap-2 lg:flex-shrink-0">
+                        {/* Assign Dosen Button */}
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          className="text-blue-600 hover:bg-blue-50"
+                          onClick={() => openAssignDialog(mk)}
+                        >
+                          <UserPlus className="h-4 w-4 mr-2" />
+                          Assign Dosen
+                        </Button>
+                        
+                        {/* Unassign Dosen Button - Only show if dosen is assigned */}
+                        {(mk.dosenPengampu || mk.koordinator) && (
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="text-orange-600 hover:bg-orange-50"
+                            onClick={() => openUnassignDialog(mk)}
+                          >
+                            <UserMinus className="h-4 w-4 mr-2" />
+                            Unassign
+                          </Button>
+                        )}
+                        
                         <Button variant="outline" size="sm" asChild>
                           <Link href={`/kaprodi/mata-kuliah/edit/${mk.id}`}>
                             <Edit3 className="h-4 w-4 mr-2" />
@@ -584,6 +748,183 @@ export default function MataKuliahPage() {
                 <Trash2 className="h-4 w-4 mr-2" />
               )}
               Hapus
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Dosen Dialog */}
+      <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5 text-blue-600" />
+              Assign Dosen ke Mata Kuliah
+            </DialogTitle>
+            <DialogDescription>
+              Tugaskan dosen pengampu dan/atau koordinator untuk mata kuliah <strong>{selectedMK?.kode} - {selectedMK?.nama}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {/* Dosen Pengampu */}
+            <div className="space-y-2">
+              <Label htmlFor="dosen_pengampu">Dosen Pengampu</Label>
+              <Select 
+                value={assignForm.dosen_pengampu_id} 
+                onValueChange={(value) => setAssignForm(prev => ({ ...prev, dosen_pengampu_id: value === 'none' ? '' : value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih Dosen Pengampu" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">-- Tidak Ada --</SelectItem>
+                  {loadingDosen ? (
+                    <SelectItem value="loading" disabled>Memuat dosen...</SelectItem>
+                  ) : (
+                    dosenList.map(dosen => (
+                      <SelectItem key={dosen.id} value={dosen.id}>
+                        {dosen.nama} ({dosen.email})
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500">Dosen yang bertanggung jawab mengajar mata kuliah ini</p>
+            </div>
+
+            {/* Koordinator */}
+            <div className="space-y-2">
+              <Label htmlFor="koordinator">Koordinator Mata Kuliah</Label>
+              <Select 
+                value={assignForm.koordinator_id} 
+                onValueChange={(value) => setAssignForm(prev => ({ ...prev, koordinator_id: value === 'none' ? '' : value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih Koordinator" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">-- Tidak Ada --</SelectItem>
+                  {loadingDosen ? (
+                    <SelectItem value="loading" disabled>Memuat dosen...</SelectItem>
+                  ) : (
+                    dosenList.map(dosen => (
+                      <SelectItem key={dosen.id} value={dosen.id}>
+                        {dosen.nama} ({dosen.email})
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500">Dosen yang bertugas sebagai koordinator mata kuliah</p>
+            </div>
+
+            {assignError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-600">{assignError}</p>
+              </div>
+            )}
+
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-700">
+                <strong>Info:</strong> Minimal satu dosen harus dipilih. Jika sudah ada dosen yang ditugaskan, 
+                memilih dosen baru akan menggantikan dosen sebelumnya.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAssignDialog(false)} disabled={assigning}>
+              Batal
+            </Button>
+            <Button 
+              className="bg-blue-600 hover:bg-blue-700" 
+              onClick={handleAssignDosen}
+              disabled={assigning}
+            >
+              {assigning ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <UserPlus className="h-4 w-4 mr-2" />
+              )}
+              Assign Dosen
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unassign Dosen Dialog */}
+      <Dialog open={showUnassignDialog} onOpenChange={setShowUnassignDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-600">
+              <UserMinus className="h-5 w-5" />
+              Batalkan Penugasan Dosen
+            </DialogTitle>
+            <DialogDescription>
+              Batalkan penugasan dosen dari mata kuliah <strong>{selectedMK?.kode} - {selectedMK?.nama}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {/* Current Assignment Info */}
+            <div className="p-3 bg-gray-50 border rounded-lg space-y-2">
+              <p className="text-sm font-medium text-gray-700">Dosen yang ditugaskan saat ini:</p>
+              <div className="flex flex-col gap-1">
+                <p className="text-sm text-gray-600">
+                  <span className="font-medium">Pengampu:</span>{' '}
+                  {selectedMK?.dosenPengampu ? selectedMK.dosenPengampu.nama : 'Tidak ada'}
+                </p>
+                <p className="text-sm text-gray-600">
+                  <span className="font-medium">Koordinator:</span>{' '}
+                  {selectedMK?.koordinator ? selectedMK.koordinator.nama : 'Tidak ada'}
+                </p>
+              </div>
+            </div>
+
+            {/* Unassign Type Selection */}
+            <div className="space-y-2">
+              <Label>Pilih yang akan di-unassign</Label>
+              <Select value={unassignType} onValueChange={(value) => setUnassignType(value as 'pengampu' | 'koordinator' | 'both')}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih tipe" />
+                </SelectTrigger>
+                <SelectContent>
+                  {selectedMK?.dosenPengampu && selectedMK?.koordinator ? (
+                    <>
+                      <SelectItem value="pengampu">Dosen Pengampu saja</SelectItem>
+                      <SelectItem value="koordinator">Koordinator saja</SelectItem>
+                      <SelectItem value="both">Keduanya (Pengampu & Koordinator)</SelectItem>
+                    </>
+                  ) : selectedMK?.dosenPengampu ? (
+                    <SelectItem value="pengampu">Dosen Pengampu</SelectItem>
+                  ) : selectedMK?.koordinator ? (
+                    <SelectItem value="koordinator">Koordinator</SelectItem>
+                  ) : null}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+              <p className="text-sm text-orange-700">
+                <strong>Peringatan:</strong> Tindakan ini akan menghapus penugasan dosen dari mata kuliah. 
+                Anda dapat menugaskan dosen baru setelahnya.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowUnassignDialog(false)} disabled={unassigning}>
+              Batal
+            </Button>
+            <Button 
+              variant="destructive"
+              className="bg-orange-600 hover:bg-orange-700" 
+              onClick={handleUnassignDosen}
+              disabled={unassigning}
+            >
+              {unassigning ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <UserMinus className="h-4 w-4 mr-2" />
+              )}
+              Unassign Dosen
             </Button>
           </DialogFooter>
         </DialogContent>

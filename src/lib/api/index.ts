@@ -38,7 +38,9 @@ export type {
   MataKuliah, 
   CreateMataKuliahRequest, 
   UpdateMataKuliahRequest, 
-  MataKuliahListParams 
+  MataKuliahListParams,
+  AssignDosenRequest,
+  UnassignDosenRequest
 } from './mata-kuliah';
 
 // CPL Assignment Service

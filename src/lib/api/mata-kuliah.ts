@@ -55,6 +55,17 @@ export interface UpdateMataKuliahRequest {
   is_active?: boolean;
 }
 
+// Assign Dosen Request
+export interface AssignDosenRequest {
+  dosen_pengampu_id?: string;
+  koordinator_id?: string;
+}
+
+// Unassign Dosen Request
+export interface UnassignDosenRequest {
+  type: 'pengampu' | 'koordinator' | 'both';
+}
+
 export interface MataKuliahListParams {
   page?: number;
   limit?: number;
@@ -111,6 +122,16 @@ export const mataKuliahService = {
   // Delete mata kuliah (Kaprodi only)
   delete: async (id: string): Promise<ApiResponse<null>> => {
     return api.delete<null>(`/mata-kuliah/${id}`);
+  },
+
+  // Assign dosen ke mata kuliah (Kaprodi only)
+  assignDosen: async (id: string, data: AssignDosenRequest): Promise<ApiResponse<MataKuliah>> => {
+    return api.patch<MataKuliah>(`/mata-kuliah/${id}/assign-dosen`, data);
+  },
+
+  // Unassign dosen dari mata kuliah (Kaprodi only)
+  unassignDosen: async (id: string, data: UnassignDosenRequest): Promise<ApiResponse<MataKuliah>> => {
+    return api.patch<MataKuliah>(`/mata-kuliah/${id}/unassign-dosen`, data);
   },
 };
 
