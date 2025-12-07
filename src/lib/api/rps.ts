@@ -24,50 +24,185 @@ export interface RencanaPembelajaran {
   id: string;
   rps_id: string;
   pertemuan: number;
-  kemampuan_akhir?: string;
-  indikator?: string;
+  minggu_mulai?: number;
+  minggu_selesai?: number;
   topik?: string;
-  materi?: string;
   sub_topik?: string[];
+  cpmk_ids?: string[];
+  sub_cpmk_ids?: string[];
+  indikator?: string[];
   metode?: string;
-  metode_pembelajaran?: string;
-  waktu_menit?: number;
+  media_lms?: string;
   waktu?: number;
-  pengalaman_belajar?: string;
+  waktu_tm?: number;
+  waktu_bm?: number;
+  waktu_pt?: number;
+  materi?: string;
+  teknik_penilaian?: string;
   kriteria_penilaian?: string;
+  bobot_penilaian?: number;
+  // Legacy fields
+  kemampuan_akhir?: string;
+  waktu_menit?: number;
+  metode_pembelajaran?: string;
+  pengalaman_belajar?: string;
   bobot_nilai?: number;
   referensi?: string;
-  cpmk_ids?: string[];
 }
 
 export interface BahanBacaan {
   id: string;
   rps_id: string;
-  jenis: 'utama' | 'pendukung' | 'buku' | 'jurnal' | 'artikel' | 'website' | 'modul';
   judul: string;
   penulis?: string;
-  penerbit?: string;
   tahun?: number;
+  penerbit?: string;
+  jenis?: 'buku' | 'jurnal' | 'artikel' | 'website' | 'modul';
   isbn?: string;
-  url?: string;
   halaman?: string;
-  urutan: number;
+  url?: string;
+  is_wajib?: boolean;
+  urutan?: number;
 }
 
 export interface Evaluasi {
   id: string;
   rps_id: string;
-  komponen?: string;
-  jenis?: string;
+  komponen: string;
   teknik_penilaian?: string;
   instrumen?: string;
   bobot: number;
-  kriteria_penilaian?: string;
+  minggu_mulai?: number;
+  minggu_selesai?: number;
+  topik_materi?: string;
+  jenis_assessment?: string;
+  urutan?: number;
+  created_at?: string;
+  // Legacy fields (keep for backward compatibility)
+  jenis?: string;
   deskripsi?: string;
   minggu_pelaksanaan?: number[];
+  kriteria_penilaian?: string;
   rubrik_penilaian?: string;
-  urutan: number;
+  cpmk_ids?: string[];
 }
+
+// Sub-CPMK Types
+export interface SubCPMK {
+  id: string;
+  cpmk_id: string;
+  kode: string;
+  deskripsi: string;
+  urutan: number;
+  created_at?: string;
+}
+
+export interface CreateSubCPMKRequest {
+  kode: string;
+  deskripsi: string;
+  urutan?: number;
+}
+
+export interface UpdateSubCPMKRequest {
+  kode?: string;
+  deskripsi?: string;
+  urutan?: number;
+}
+
+// Rencana Tugas Types
+export interface RencanaTugas {
+  id: string;
+  rps_id: string;
+  nomor_tugas: number;
+  judul: string;
+  sub_cpmk_ids?: string[];
+  indikator_keberhasilan?: string;
+  batas_waktu_minggu?: number;
+  batas_waktu_tanggal?: string;
+  petunjuk_pengerjaan?: string;
+  jenis_tugas: 'Individu' | 'Kelompok';
+  luaran_tugas?: string;
+  kriteria_penilaian?: string;
+  teknik_penilaian?: string;
+  bobot: number;
+  created_at?: string;
+}
+
+export interface CreateRencanaTugasRequest {
+  nomor_tugas: number;
+  judul: string;
+  sub_cpmk_ids?: string[];
+  indikator_keberhasilan?: string;
+  batas_waktu_minggu?: number;
+  batas_waktu_tanggal?: string;
+  petunjuk_pengerjaan?: string;
+  jenis_tugas: 'Individu' | 'Kelompok';
+  luaran_tugas?: string;
+  kriteria_penilaian?: string;
+  teknik_penilaian?: string;
+  bobot: number;
+}
+
+export interface UpdateRencanaTugasRequest extends Partial<CreateRencanaTugasRequest> {}
+
+// Analisis Ketercapaian CPL Types
+export interface AnalisisKetercapaianCPL {
+  id: string;
+  rps_id: string;
+  minggu_mulai: number;
+  minggu_selesai: number;
+  cpl_id: string;
+  cpmk_ids?: string[];
+  sub_cpmk_ids?: string[];
+  topik_materi?: string;
+  jenis_assessment?: string;
+  bobot_kontribusi: number;
+  created_at?: string;
+  cpl?: {
+    id: string;
+    kode: string;
+    deskripsi: string;
+  };
+}
+
+export interface CreateAnalisisKetercapaianRequest {
+  minggu_mulai: number;
+  minggu_selesai: number;
+  cpl_id: string;
+  cpmk_ids?: string[];
+  sub_cpmk_ids?: string[];
+  topik_materi?: string;
+  jenis_assessment?: string;
+  bobot_kontribusi: number;
+}
+
+export interface UpdateAnalisisKetercapaianRequest extends Partial<CreateAnalisisKetercapaianRequest> {}
+
+// Skala Penilaian Types
+export interface SkalaPenilaian {
+  id: string;
+  rps_id: string;
+  nilai_min: number;
+  nilai_max: number;
+  huruf_mutu: string;
+  bobot_nilai: number;
+  is_lulus: boolean;
+  created_at?: string;
+}
+
+export interface CreateSkalaPenilaianRequest {
+  nilai_min: number;
+  nilai_max: number;
+  huruf_mutu: string;
+  bobot_nilai: number;
+  is_lulus: boolean;
+}
+
+export interface BatchSkalaPenilaianRequest {
+  skala_penilaian: CreateSkalaPenilaianRequest[];
+}
+
+export interface UpdateSkalaPenilaianRequest extends Partial<CreateSkalaPenilaianRequest> {}
 
 export interface RPS {
   id: string;
@@ -77,7 +212,17 @@ export interface RPS {
   sks: number;
   semester: number;
   tahun_akademik: string;
+  tahun_ajaran?: string;
   semester_type?: 'ganjil' | 'genap';
+  tanggal_penyusunan?: string;
+  penyusun_nama?: string;
+  penyusun_nidn?: string;
+  koordinator_rmk_nama?: string;
+  koordinator_rmk_nidn?: string;
+  kaprodi_nama?: string;
+  kaprodi_nidn?: string;
+  fakultas?: string;
+  program_studi?: string;
   dosen_id: string;
   dosen_nama: string;
   deskripsi?: string;
@@ -88,7 +233,7 @@ export interface RPS {
   metode_pembelajaran?: string[];
   media_pembelajaran?: string[];
   bobot_nilai?: BobotNilai;
-  status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'published';
+  status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'revision' | 'published';
   created_at: string;
   updated_at: string;
   submitted_at?: string;
@@ -98,6 +243,9 @@ export interface RPS {
   rencana_pembelajaran?: RencanaPembelajaran[];
   bahan_bacaan?: BahanBacaan[];
   evaluasi?: Evaluasi[];
+  rencana_tugas?: RencanaTugas[];
+  analisis_ketercapaian?: AnalisisKetercapaianCPL[];
+  skala_penilaian?: SkalaPenilaian[];
 }
 
 export interface CreateRPSRequest {
@@ -105,6 +253,15 @@ export interface CreateRPSRequest {
   tahun_akademik?: string;
   tahun_ajaran?: string;
   semester_type?: 'ganjil' | 'genap';
+  tanggal_penyusunan?: string;
+  penyusun_nama?: string;
+  penyusun_nidn?: string;
+  koordinator_rmk_nama?: string;
+  koordinator_rmk_nidn?: string;
+  kaprodi_nama?: string;
+  kaprodi_nidn?: string;
+  fakultas?: string;
+  program_studi?: string;
   deskripsi?: string;
   deskripsi_mk?: string;
   tujuan?: string;
@@ -159,57 +316,60 @@ export interface UpdateCPMKRequest {
   urutan?: number;
 }
 
-// Rencana Pembelajaran Types
+// Rencana Pembelajaran Types - sesuai API docs
 export interface CreateRencanaPembelajaranRequest {
   pertemuan: number;
-  kemampuan_akhir?: string;
-  indikator?: string;
-  topik?: string;
-  materi?: string;
+  minggu_mulai: number;
+  minggu_selesai?: number;
+  topik: string;
   sub_topik?: string[];
-  metode?: string;
-  metode_pembelajaran?: string;
-  waktu_menit?: number;
-  waktu?: number;
-  pengalaman_belajar?: string;
-  kriteria_penilaian?: string;
-  bobot_nilai?: number;
-  referensi?: string;
   cpmk_ids?: string[];
+  sub_cpmk_ids?: string[];
+  indikator?: string[];
+  metode?: string;
+  media_lms?: string;
+  waktu?: number;
+  waktu_tm?: number;
+  waktu_bm?: number;
+  waktu_pt?: number;
+  materi?: string;
+  teknik_penilaian?: string;
+  kriteria_penilaian?: string;
+  bobot_penilaian?: number;
 }
 
-export interface UpdateRencanaPembelajaranRequest extends CreateRencanaPembelajaranRequest {}
+export interface UpdateRencanaPembelajaranRequest extends Partial<CreateRencanaPembelajaranRequest> {}
 
-// Bahan Bacaan Types
+// Bahan Bacaan Types - sesuai API docs
 export interface CreateBahanBacaanRequest {
-  jenis: 'utama' | 'pendukung' | 'buku' | 'jurnal' | 'artikel' | 'website' | 'modul';
   judul: string;
   penulis?: string;
-  penerbit?: string;
   tahun?: number;
+  penerbit?: string;
+  jenis?: 'buku' | 'jurnal' | 'artikel' | 'website' | 'modul';
   isbn?: string;
-  url?: string;
   halaman?: string;
+  url?: string;
+  is_wajib?: boolean;
   urutan?: number;
 }
 
-export interface UpdateBahanBacaanRequest extends CreateBahanBacaanRequest {}
+export interface UpdateBahanBacaanRequest extends Partial<CreateBahanBacaanRequest> {}
 
-// Evaluasi Types
+// Evaluasi Types - sesuai API backend
 export interface CreateEvaluasiRequest {
-  komponen?: string;
-  jenis?: string;
+  komponen: string;
   teknik_penilaian?: string;
   instrumen?: string;
   bobot: number;
-  kriteria_penilaian?: string;
-  deskripsi?: string;
-  minggu_pelaksanaan?: number[];
-  rubrik_penilaian?: string;
+  minggu_mulai?: number;
+  minggu_selesai?: number;
+  topik_materi?: string;
+  jenis_assessment?: string;
   urutan?: number;
 }
 
-export interface UpdateEvaluasiRequest extends CreateEvaluasiRequest {}
+export interface UpdateEvaluasiRequest extends Partial<CreateEvaluasiRequest> {}
 
 // Review Types
 export interface ReviewRequest {
@@ -274,6 +434,11 @@ export const rpsService = {
 
   // CPMK Sub-resource
   cpmk: {
+    // Get all CPMK from all RPS
+    getAllGlobal: async (): Promise<ApiResponse<CPMK[]>> => {
+      return api.get<CPMK[]>('/rps/cpmk');
+    },
+
     getAll: async (rpsId: string): Promise<ApiResponse<CPMK[]>> => {
       return api.get<CPMK[]>(`/rps/${rpsId}/cpmk`);
     },
@@ -282,12 +447,13 @@ export const rpsService = {
       return api.post<CPMK>(`/rps/${rpsId}/cpmk`, data);
     },
 
-    update: async (rpsId: string, cpmkId: string, data: UpdateCPMKRequest): Promise<ApiResponse<CPMK>> => {
-      return api.put<CPMK>(`/rps/${rpsId}/cpmk/${cpmkId}`, data);
+    // Backend uses /rps/cpmk/:cpmk_id for update/delete
+    update: async (cpmkId: string, data: UpdateCPMKRequest): Promise<ApiResponse<CPMK>> => {
+      return api.put<CPMK>(`/rps/cpmk/${cpmkId}`, data);
     },
 
-    delete: async (rpsId: string, cpmkId: string): Promise<ApiResponse<null>> => {
-      return api.delete<null>(`/rps/${rpsId}/cpmk/${cpmkId}`);
+    delete: async (cpmkId: string): Promise<ApiResponse<null>> => {
+      return api.delete<null>(`/rps/cpmk/${cpmkId}`);
     },
   },
 
@@ -301,12 +467,13 @@ export const rpsService = {
       return api.post<RencanaPembelajaran>(`/rps/${rpsId}/rencana-pembelajaran`, data);
     },
 
-    update: async (rpsId: string, rpId: string, data: UpdateRencanaPembelajaranRequest): Promise<ApiResponse<RencanaPembelajaran>> => {
-      return api.put<RencanaPembelajaran>(`/rps/${rpsId}/rencana-pembelajaran/${rpId}`, data);
+    // Backend uses /rps/rencana-pembelajaran/:id for update/delete
+    update: async (rpId: string, data: UpdateRencanaPembelajaranRequest): Promise<ApiResponse<RencanaPembelajaran>> => {
+      return api.put<RencanaPembelajaran>(`/rps/rencana-pembelajaran/${rpId}`, data);
     },
 
-    delete: async (rpsId: string, rpId: string): Promise<ApiResponse<null>> => {
-      return api.delete<null>(`/rps/${rpsId}/rencana-pembelajaran/${rpId}`);
+    delete: async (rpId: string): Promise<ApiResponse<null>> => {
+      return api.delete<null>(`/rps/rencana-pembelajaran/${rpId}`);
     },
   },
 
@@ -320,12 +487,13 @@ export const rpsService = {
       return api.post<BahanBacaan>(`/rps/${rpsId}/bahan-bacaan`, data);
     },
 
-    update: async (rpsId: string, bbId: string, data: UpdateBahanBacaanRequest): Promise<ApiResponse<BahanBacaan>> => {
-      return api.put<BahanBacaan>(`/rps/${rpsId}/bahan-bacaan/${bbId}`, data);
+    // Backend uses /rps/bahan-bacaan/:id for update/delete
+    update: async (bbId: string, data: UpdateBahanBacaanRequest): Promise<ApiResponse<BahanBacaan>> => {
+      return api.put<BahanBacaan>(`/rps/bahan-bacaan/${bbId}`, data);
     },
 
-    delete: async (rpsId: string, bbId: string): Promise<ApiResponse<null>> => {
-      return api.delete<null>(`/rps/${rpsId}/bahan-bacaan/${bbId}`);
+    delete: async (bbId: string): Promise<ApiResponse<null>> => {
+      return api.delete<null>(`/rps/bahan-bacaan/${bbId}`);
     },
   },
 
@@ -339,12 +507,93 @@ export const rpsService = {
       return api.post<Evaluasi>(`/rps/${rpsId}/evaluasi`, data);
     },
 
-    update: async (rpsId: string, evalId: string, data: UpdateEvaluasiRequest): Promise<ApiResponse<Evaluasi>> => {
-      return api.put<Evaluasi>(`/rps/${rpsId}/evaluasi/${evalId}`, data);
+    // Backend uses /rps/evaluasi/:id for update/delete
+    update: async (evalId: string, data: UpdateEvaluasiRequest): Promise<ApiResponse<Evaluasi>> => {
+      return api.put<Evaluasi>(`/rps/evaluasi/${evalId}`, data);
     },
 
-    delete: async (rpsId: string, evalId: string): Promise<ApiResponse<null>> => {
-      return api.delete<null>(`/rps/${rpsId}/evaluasi/${evalId}`);
+    delete: async (evalId: string): Promise<ApiResponse<null>> => {
+      return api.delete<null>(`/rps/evaluasi/${evalId}`);
+    },
+  },
+
+  // Sub-CPMK Sub-resource
+  subCpmk: {
+    getAll: async (cpmkId: string): Promise<ApiResponse<SubCPMK[]>> => {
+      return api.get<SubCPMK[]>(`/rps/cpmk/${cpmkId}/sub-cpmk`);
+    },
+
+    create: async (cpmkId: string, data: CreateSubCPMKRequest): Promise<ApiResponse<SubCPMK>> => {
+      return api.post<SubCPMK>(`/rps/cpmk/${cpmkId}/sub-cpmk`, data);
+    },
+
+    update: async (subCpmkId: string, data: UpdateSubCPMKRequest): Promise<ApiResponse<SubCPMK>> => {
+      return api.put<SubCPMK>(`/rps/sub-cpmk/${subCpmkId}`, data);
+    },
+
+    delete: async (subCpmkId: string): Promise<ApiResponse<null>> => {
+      return api.delete<null>(`/rps/sub-cpmk/${subCpmkId}`);
+    },
+  },
+
+  // Rencana Tugas Sub-resource
+  rencanaTugas: {
+    getAll: async (rpsId: string): Promise<ApiResponse<RencanaTugas[]>> => {
+      return api.get<RencanaTugas[]>(`/rps/${rpsId}/rencana-tugas`);
+    },
+
+    create: async (rpsId: string, data: CreateRencanaTugasRequest): Promise<ApiResponse<RencanaTugas>> => {
+      return api.post<RencanaTugas>(`/rps/${rpsId}/rencana-tugas`, data);
+    },
+
+    update: async (tugasId: string, data: UpdateRencanaTugasRequest): Promise<ApiResponse<RencanaTugas>> => {
+      return api.put<RencanaTugas>(`/rps/rencana-tugas/${tugasId}`, data);
+    },
+
+    delete: async (tugasId: string): Promise<ApiResponse<null>> => {
+      return api.delete<null>(`/rps/rencana-tugas/${tugasId}`);
+    },
+  },
+
+  // Analisis Ketercapaian CPL Sub-resource
+  analisisKetercapaian: {
+    getAll: async (rpsId: string): Promise<ApiResponse<AnalisisKetercapaianCPL[]>> => {
+      return api.get<AnalisisKetercapaianCPL[]>(`/rps/${rpsId}/analisis-ketercapaian`);
+    },
+
+    create: async (rpsId: string, data: CreateAnalisisKetercapaianRequest): Promise<ApiResponse<AnalisisKetercapaianCPL>> => {
+      return api.post<AnalisisKetercapaianCPL>(`/rps/${rpsId}/analisis-ketercapaian`, data);
+    },
+
+    update: async (analisisId: string, data: UpdateAnalisisKetercapaianRequest): Promise<ApiResponse<AnalisisKetercapaianCPL>> => {
+      return api.put<AnalisisKetercapaianCPL>(`/rps/analisis-ketercapaian/${analisisId}`, data);
+    },
+
+    delete: async (analisisId: string): Promise<ApiResponse<null>> => {
+      return api.delete<null>(`/rps/analisis-ketercapaian/${analisisId}`);
+    },
+  },
+
+  // Skala Penilaian Sub-resource
+  skalaPenilaian: {
+    getAll: async (rpsId: string): Promise<ApiResponse<SkalaPenilaian[]>> => {
+      return api.get<SkalaPenilaian[]>(`/rps/${rpsId}/skala-penilaian`);
+    },
+
+    create: async (rpsId: string, data: CreateSkalaPenilaianRequest): Promise<ApiResponse<SkalaPenilaian>> => {
+      return api.post<SkalaPenilaian>(`/rps/${rpsId}/skala-penilaian`, data);
+    },
+
+    batchCreate: async (rpsId: string, data: BatchSkalaPenilaianRequest): Promise<ApiResponse<SkalaPenilaian[]>> => {
+      return api.post<SkalaPenilaian[]>(`/rps/${rpsId}/skala-penilaian/batch`, data);
+    },
+
+    update: async (skalaId: string, data: UpdateSkalaPenilaianRequest): Promise<ApiResponse<SkalaPenilaian>> => {
+      return api.put<SkalaPenilaian>(`/rps/skala-penilaian/${skalaId}`, data);
+    },
+
+    delete: async (skalaId: string): Promise<ApiResponse<null>> => {
+      return api.delete<null>(`/rps/skala-penilaian/${skalaId}`);
     },
   },
 };

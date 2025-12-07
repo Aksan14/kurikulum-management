@@ -64,13 +64,32 @@ export interface PaginatedResponse<T> {
 // Error handling
 export class ApiError extends Error {
   status: number;
-  data: object | null;
+  data: Record<string, unknown> | null;
 
-  constructor(message: string, status: number, data: object | null = null) {
+  constructor(message: string, status: number, data: Record<string, unknown> | null = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.data = data;
+  }
+  
+  // Helper untuk mendapatkan error message yang lebih detail
+  getDetailedMessage(): string {
+    if (this.data) {
+      // Coba ambil pesan error dari berbagai field yang mungkin
+      const errorMsg = this.data.message || this.data.error || this.data.detail;
+      if (typeof errorMsg === 'string') {
+        return errorMsg;
+      }
+      // Jika ada validation errors
+      if (this.data.errors && typeof this.data.errors === 'object') {
+        const errors = Object.values(this.data.errors).flat();
+        if (errors.length > 0) {
+          return errors.join(', ');
+        }
+      }
+    }
+    return this.message;
   }
 }
 

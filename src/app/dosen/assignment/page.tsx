@@ -8,45 +8,57 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
+import {
   ClipboardList,
   CheckCircle,
   Clock,
   AlertCircle,
   Search,
-  Filter,
   Calendar,
   FileText,
   Target,
   Loader2,
-  ArrowRight
+  ArrowRight,
+  RefreshCw,
+  Check,
+  X
 } from "lucide-react"
 import Link from "next/link"
-import { rpsService } from "@/lib/api/rps"
+import { cplAssignmentService, type CPLAssignment } from "@/lib/api/cpl-assignment"
 import { authService } from "@/lib/api/auth"
-import type { RPS } from "@/lib/api/rps"
 import { formatDate } from "@/lib/utils"
 
-interface Assignment {
-  id: string
-  title: string
-  description: string
-  deadline: string
-  status: 'pending' | 'in_progress' | 'completed' | 'overdue'
-  priority: 'high' | 'medium' | 'low'
-  type: 'rps' | 'cpl' | 'mapping'
-  relatedRpsId?: string
+const statusConfig = {
+  assigned: { label: 'Ditugaskan', color: 'bg-blue-100 text-blue-700 border-blue-200' },
+  accepted: { label: 'Diterima', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+  rejected: { label: 'Ditolak', color: 'bg-red-100 text-red-700 border-red-200' },
+  done: { label: 'Selesai', color: 'bg-green-100 text-green-700 border-green-200' },
+  cancelled: { label: 'Dibatalkan', color: 'bg-gray-100 text-gray-700 border-gray-200' }
 }
 
 export default function DosenAssignmentPage() {
   const router = useRouter()
-  const [rpsList, setRpsList] = useState<RPS[]>([])
+  const [assignments, setAssignments] = useState<CPLAssignment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [filterStatus, setFilterStatus] = useState<string>("all")
+  
+  const [showActionDialog, setShowActionDialog] = useState(false)
+  const [selectedAssignment, setSelectedAssignment] = useState<CPLAssignment | null>(null)
+  const [actionType, setActionType] = useState<'accept' | 'reject' | 'complete'>('accept')
+  const [actionLoading, setActionLoading] = useState(false)
+  const [comment, setComment] = useState("")
 
   const fetchData = useCallback(async () => {
-    // Check if user is authenticated
     if (!authService.isAuthenticated()) {
       router.push('/login')
       return
@@ -55,11 +67,21 @@ export default function DosenAssignmentPage() {
     try {
       setLoading(true)
       setError(null)
-      const response = await rpsService.getMy()
-      setRpsList(response.data?.data || [])
+      const response = await cplAssignmentService.getMy()
+      
+      let data: CPLAssignment[] = []
+      if (response.data) {
+        if (Array.isArray(response.data)) {
+          data = response.data
+        } else if (response.data.data && Array.isArray(response.data.data)) {
+          data = response.data.data
+        }
+      }
+      
+      setAssignments(data)
     } catch (err) {
-      console.error('Error fetching data:', err)
-      setError(err instanceof Error ? err.message : 'Gagal memuat data')
+      console.error('Error fetching assignments:', err)
+      setError(err instanceof Error ? err.message : 'Gagal memuat data tugas')
     } finally {
       setLoading(false)
     }
@@ -69,62 +91,53 @@ export default function DosenAssignmentPage() {
     fetchData()
   }, [fetchData])
 
-  // Generate assignments from RPS data
-  const assignments: Assignment[] = rpsList.map((rps) => {
-    let status: Assignment['status'] = 'pending'
-    if (rps.status === 'approved') status = 'completed'
-    else if (rps.status === 'submitted') status = 'in_progress'
-    else if (rps.status === 'rejected') status = 'pending'
-
-    return {
-      id: String(rps.id),
-      title: `RPS ${rps.mata_kuliah_nama || `MK-${rps.mata_kuliah_id}`}`,
-      description: `Penyusunan RPS untuk mata kuliah ${rps.mata_kuliah_nama || `MK-${rps.mata_kuliah_id}`} - ${rps.tahun_akademik}`,
-      deadline: rps.updated_at || new Date().toISOString(),
-      status,
-      priority: rps.status === 'rejected' ? 'high' : rps.status === 'draft' ? 'medium' : 'low',
-      type: 'rps',
-      relatedRpsId: rps.id
-    }
-  })
-
-  // Filter assignments
   const filteredAssignments = assignments.filter(assignment => {
-    const matchesSearch = assignment.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         assignment.description.toLowerCase().includes(searchQuery.toLowerCase())
+    const searchLower = searchQuery.toLowerCase()
+    const matchesSearch = 
+      assignment.cpl?.kode?.toLowerCase().includes(searchLower) ||
+      assignment.cpl?.judul?.toLowerCase().includes(searchLower) ||
+      assignment.mata_kuliah?.toLowerCase().includes(searchLower)
     const matchesStatus = filterStatus === 'all' || assignment.status === filterStatus
     return matchesSearch && matchesStatus
   })
 
-  // Stats
   const stats = {
     total: assignments.length,
-    pending: assignments.filter(a => a.status === 'pending').length,
-    inProgress: assignments.filter(a => a.status === 'in_progress').length,
-    completed: assignments.filter(a => a.status === 'completed').length,
+    assigned: assignments.filter(a => a.status === 'assigned').length,
+    accepted: assignments.filter(a => a.status === 'accepted').length,
+    done: assignments.filter(a => a.status === 'done').length,
   }
 
-  const getStatusBadge = (status: Assignment['status']) => {
-    switch (status) {
-      case 'completed':
-        return <Badge className="bg-green-100 text-green-700 border-green-200">Selesai</Badge>
-      case 'in_progress':
-        return <Badge className="bg-blue-100 text-blue-700 border-blue-200">Dalam Proses</Badge>
-      case 'pending':
-        return <Badge className="bg-yellow-100 text-yellow-700 border-yellow-200">Menunggu</Badge>
-      case 'overdue':
-        return <Badge className="bg-red-100 text-red-700 border-red-200">Terlambat</Badge>
-    }
+  const openActionDialog = (assignment: CPLAssignment, type: 'accept' | 'reject' | 'complete') => {
+    setSelectedAssignment(assignment)
+    setActionType(type)
+    setComment("")
+    setShowActionDialog(true)
   }
 
-  const getPriorityBadge = (priority: Assignment['priority']) => {
-    switch (priority) {
-      case 'high':
-        return <Badge variant="outline" className="text-red-600 border-red-300">Prioritas Tinggi</Badge>
-      case 'medium':
-        return <Badge variant="outline" className="text-yellow-600 border-yellow-300">Prioritas Sedang</Badge>
-      case 'low':
-        return <Badge variant="outline" className="text-green-600 border-green-300">Prioritas Rendah</Badge>
+  const handleAction = async () => {
+    if (!selectedAssignment) return
+
+    try {
+      setActionLoading(true)
+      
+      let status: 'accepted' | 'rejected' | 'done' = 'accepted'
+      if (actionType === 'reject') status = 'rejected'
+      else if (actionType === 'complete') status = 'done'
+
+      await cplAssignmentService.updateStatus(selectedAssignment.id, {
+        status,
+        comment: actionType === 'reject' ? undefined : comment || undefined,
+        rejection_reason: actionType === 'reject' ? comment || undefined : undefined
+      })
+
+      setShowActionDialog(false)
+      fetchData()
+    } catch (err) {
+      console.error('Error updating assignment:', err)
+      setError(err instanceof Error ? err.message : 'Gagal memperbarui tugas')
+    } finally {
+      setActionLoading(false)
     }
   }
 
@@ -132,8 +145,15 @@ export default function DosenAssignmentPage() {
     return (
       <DashboardLayout>
         <div className="flex h-[60vh] items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          <span className="ml-2 text-slate-600">Memuat tugas...</span>
+          <div className="text-center space-y-4">
+            <div className="flex justify-center">
+              <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+            </div>
+            <div>
+              <p className="text-slate-700 font-medium">Memuat tugas CPL Anda...</p>
+              <p className="text-sm text-slate-500 mt-1">Tunggu sebentar</p>
+            </div>
+          </div>
         </div>
       </DashboardLayout>
     )
@@ -143,9 +163,13 @@ export default function DosenAssignmentPage() {
     return (
       <DashboardLayout>
         <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
-          <AlertCircle className="h-12 w-12 text-red-500" />
-          <p className="text-lg font-medium text-slate-900">Gagal Memuat Data</p>
-          <p className="text-slate-600">{error}</p>
+          <div className="rounded-full bg-red-100 p-4">
+            <AlertCircle className="h-12 w-12 text-red-600" />
+          </div>
+          <div className="text-center space-y-2">
+            <p className="text-lg font-semibold text-slate-900">Oops! Gagal Memuat Data</p>
+            <p className="text-sm text-slate-600 max-w-md">{error}</p>
+          </div>
           <Button onClick={fetchData}>Coba Lagi</Button>
         </div>
       </DashboardLayout>
@@ -155,15 +179,19 @@ export default function DosenAssignmentPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Tugas Saya</h1>
-          <p className="text-slate-600 mt-1">
-            Daftar tugas penyusunan RPS dan pemetaan CPL yang perlu diselesaikan
-          </p>
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Tugas CPL Saya</h1>
+            <p className="text-slate-600 mt-1">
+              Daftar penugasan penyusunan CPL yang diberikan oleh Kaprodi
+            </p>
+          </div>
+          <Button variant="outline" onClick={fetchData} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
         </div>
 
-        {/* Stats Cards */}
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardContent className="p-4">
@@ -185,8 +213,8 @@ export default function DosenAssignmentPage() {
                   <Clock className="h-5 w-5 text-yellow-600" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-slate-900">{stats.pending}</p>
-                  <p className="text-sm text-slate-600">Menunggu</p>
+                  <p className="text-2xl font-bold text-slate-900">{stats.assigned}</p>
+                  <p className="text-sm text-slate-600">Menunggu Respon</p>
                 </div>
               </div>
             </CardContent>
@@ -194,12 +222,12 @@ export default function DosenAssignmentPage() {
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
-                  <Target className="h-5 w-5 text-blue-600" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100">
+                  <Target className="h-5 w-5 text-emerald-600" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-slate-900">{stats.inProgress}</p>
-                  <p className="text-sm text-slate-600">Dalam Proses</p>
+                  <p className="text-2xl font-bold text-slate-900">{stats.accepted}</p>
+                  <p className="text-sm text-slate-600">Sedang Dikerjakan</p>
                 </div>
               </div>
             </CardContent>
@@ -211,7 +239,7 @@ export default function DosenAssignmentPage() {
                   <CheckCircle className="h-5 w-5 text-green-600" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-slate-900">{stats.completed}</p>
+                  <p className="text-2xl font-bold text-slate-900">{stats.done}</p>
                   <p className="text-sm text-slate-600">Selesai</p>
                 </div>
               </div>
@@ -219,7 +247,6 @@ export default function DosenAssignmentPage() {
           </Card>
         </div>
 
-        {/* Filters */}
         <Card>
           <CardContent className="p-4">
             <div className="flex flex-col gap-4 md:flex-row md:items-center">
@@ -238,21 +265,26 @@ export default function DosenAssignmentPage() {
                 className="rounded-md border border-slate-200 px-3 py-2 text-sm"
               >
                 <option value="all">Semua Status</option>
-                <option value="pending">Menunggu</option>
-                <option value="in_progress">Dalam Proses</option>
-                <option value="completed">Selesai</option>
+                <option value="assigned">Ditugaskan</option>
+                <option value="accepted">Diterima</option>
+                <option value="done">Selesai</option>
+                <option value="rejected">Ditolak</option>
               </select>
             </div>
           </CardContent>
         </Card>
 
-        {/* Assignment List */}
         <div className="space-y-4">
           {filteredAssignments.length === 0 ? (
             <Card>
               <CardContent className="p-8 text-center">
                 <ClipboardList className="mx-auto h-12 w-12 text-slate-300" />
-                <p className="mt-4 text-slate-600">Tidak ada tugas yang ditemukan</p>
+                <p className="mt-4 text-lg font-medium text-slate-900">Tidak Ada Tugas</p>
+                <p className="text-slate-600">
+                  {searchQuery || filterStatus !== 'all'
+                    ? 'Tidak ada tugas yang cocok dengan filter'
+                    : 'Anda belum memiliki tugas CPL dari Kaprodi'}
+                </p>
               </CardContent>
             </Card>
           ) : (
@@ -262,28 +294,83 @@ export default function DosenAssignmentPage() {
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        {getStatusBadge(assignment.status)}
-                        {getPriorityBadge(assignment.priority)}
+                        <Badge className={statusConfig[assignment.status].color}>
+                          {statusConfig[assignment.status].label}
+                        </Badge>
+                        {assignment.cpl && (
+                          <Badge variant="outline" className="text-blue-600 border-blue-300">
+                            {assignment.cpl.kode}
+                          </Badge>
+                        )}
                       </div>
-                      <h3 className="font-semibold text-slate-900">{assignment.title}</h3>
-                      <p className="text-sm text-slate-600 mt-1">{assignment.description}</p>
+                      <h3 className="font-semibold text-slate-900">
+                        {assignment.cpl?.judul || `Tugas CPL ${assignment.cpl_id}`}
+                      </h3>
+                      {assignment.cpl?.deskripsi && (
+                        <p className="text-sm text-slate-600 mt-1 line-clamp-2">
+                          {assignment.cpl.deskripsi}
+                        </p>
+                      )}
+                      {assignment.mata_kuliah && (
+                        <p className="text-sm text-slate-500 mt-1">
+                          <FileText className="h-4 w-4 inline mr-1" />
+                          Mata Kuliah: {assignment.mata_kuliah}
+                        </p>
+                      )}
                       <div className="flex items-center gap-4 mt-3 text-sm text-slate-500">
                         <span className="flex items-center gap-1">
                           <Calendar className="h-4 w-4" />
-                          {formatDate(assignment.deadline)}
+                          Ditugaskan: {formatDate(assignment.assigned_at)}
                         </span>
-                        <span className="flex items-center gap-1">
-                          <FileText className="h-4 w-4" />
-                          {assignment.type.toUpperCase()}
-                        </span>
+                        {assignment.deadline && (
+                          <span className="flex items-center gap-1 text-red-500">
+                            <Clock className="h-4 w-4" />
+                            Deadline: {formatDate(assignment.deadline)}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <Button variant="outline" size="sm" asChild>
-                      <Link href={`/dosen/rps/${assignment.relatedRpsId}`}>
-                        Lihat Detail
-                        <ArrowRight className="h-4 w-4 ml-1" />
-                      </Link>
-                    </Button>
+                    <div className="flex flex-col gap-2">
+                      {assignment.status === 'assigned' && (
+                        <>
+                          <Button 
+                            size="sm" 
+                            onClick={() => openActionDialog(assignment, 'accept')}
+                            className="bg-emerald-600 hover:bg-emerald-700"
+                          >
+                            <Check className="h-4 w-4 mr-1" />
+                            Terima
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => openActionDialog(assignment, 'reject')}
+                            className="text-red-600 border-red-300 hover:bg-red-50"
+                          >
+                            <X className="h-4 w-4 mr-1" />
+                            Tolak
+                          </Button>
+                        </>
+                      )}
+                      {assignment.status === 'accepted' && (
+                        <Button 
+                          size="sm" 
+                          onClick={() => openActionDialog(assignment, 'complete')}
+                          className="bg-green-600 hover:bg-green-700"
+                        >
+                          <CheckCircle className="h-4 w-4 mr-1" />
+                          Selesai
+                        </Button>
+                      )}
+                      {assignment.cpl_id && (
+                        <Button variant="outline" size="sm" asChild>
+                          <Link href={`/dosen/cpl/${assignment.cpl_id}`}>
+                            <ArrowRight className="h-4 w-4 mr-1" />
+                            Detail CPL
+                          </Link>
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -291,6 +378,50 @@ export default function DosenAssignmentPage() {
           )}
         </div>
       </div>
+
+      <Dialog open={showActionDialog} onOpenChange={setShowActionDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {actionType === 'accept' && 'Terima Tugas'}
+              {actionType === 'reject' && 'Tolak Tugas'}
+              {actionType === 'complete' && 'Selesaikan Tugas'}
+            </DialogTitle>
+            <DialogDescription>
+              {actionType === 'accept' && 'Anda akan menerima tugas ini. Tambahkan catatan jika diperlukan.'}
+              {actionType === 'reject' && 'Anda akan menolak tugas ini. Berikan alasan penolakan.'}
+              {actionType === 'complete' && 'Tandai tugas ini sebagai selesai. Tambahkan catatan jika diperlukan.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Textarea
+              placeholder={actionType === 'reject' ? 'Alasan penolakan...' : 'Catatan (opsional)...'}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowActionDialog(false)}>
+              Batal
+            </Button>
+            <Button 
+              onClick={handleAction} 
+              disabled={actionLoading || (actionType === 'reject' && !comment)}
+              className={
+                actionType === 'reject' 
+                  ? 'bg-red-600 hover:bg-red-700' 
+                  : 'bg-emerald-600 hover:bg-emerald-700'
+              }
+            >
+              {actionLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {actionType === 'accept' && 'Terima'}
+              {actionType === 'reject' && 'Tolak'}
+              {actionType === 'complete' && 'Selesai'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   )
 }

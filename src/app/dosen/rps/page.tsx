@@ -32,7 +32,7 @@ import {
   Loader2,
   AlertCircle
 } from "lucide-react"
-import { rpsService, RPS, authService } from "@/lib/api"
+import { rpsService, RPS, authService, mataKuliahService, MataKuliah } from "@/lib/api"
 import { cn, formatDateTime } from "@/lib/utils"
 import Link from "next/link"
 
@@ -42,11 +42,13 @@ const statusConfig = {
   approved: { label: 'Disetujui', variant: 'success' as const, icon: CheckCircle, color: 'text-emerald-600 bg-emerald-100' },
   rejected: { label: 'Ditolak', variant: 'danger' as const, icon: XCircle, color: 'text-red-600 bg-red-100' },
   published: { label: 'Published', variant: 'info' as const, icon: FileText, color: 'text-blue-600 bg-blue-100' },
+  revision: { label: 'Perlu Revisi', variant: 'warning' as const, icon: AlertCircle, color: 'text-orange-600 bg-orange-100' },
 }
 
 export default function DosenRPSPage() {
   const router = useRouter()
   const [rpsList, setRpsList] = useState<RPS[]>([])
+  const [mataKuliahList, setMataKuliahList] = useState<MataKuliah[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -62,11 +64,34 @@ export default function DosenRPSPage() {
     try {
       setLoading(true)
       setError(null)
-      const response = await rpsService.getMy()
-      if (response.data) {
-        const data = Array.isArray(response.data) ? response.data : response.data.data || []
-        setRpsList(data)
+      
+      // Fetch RPS and Mata Kuliah in parallel
+      const [rpsResponse, mkResponse] = await Promise.all([
+        rpsService.getMy(),
+        mataKuliahService.getMy()
+      ])
+      
+      // Process RPS data
+      let rpsData: RPS[] = []
+      if (rpsResponse.data) {
+        rpsData = Array.isArray(rpsResponse.data) ? rpsResponse.data : rpsResponse.data.data || []
       }
+      
+      // Process Mata Kuliah data
+      let mkData: MataKuliah[] = []
+      if (mkResponse.data) {
+        if (Array.isArray(mkResponse.data)) {
+          mkData = mkResponse.data
+        } else if (mkResponse.data.data && Array.isArray(mkResponse.data.data)) {
+          mkData = mkResponse.data.data
+        }
+      }
+      
+      setRpsList(rpsData)
+      setMataKuliahList(mkData)
+      
+      console.log('📊 Loaded RPS:', rpsData.length, rpsData)
+      console.log('📊 Loaded Mata Kuliah:', mkData.length, mkData)
     } catch (err) {
       console.error("Error fetching RPS:", err)
       setError("Gagal memuat data RPS")
@@ -74,6 +99,12 @@ export default function DosenRPSPage() {
       setLoading(false)
     }
   }, [router])
+
+  // Helper function to get mata kuliah info by ID
+  const getMataKuliahInfo = (mataKuliahId: string) => {
+    const mk = mataKuliahList.find(m => m.id === mataKuliahId)
+    return mk || null
+  }
 
   useEffect(() => {
     fetchRPS()
@@ -87,10 +118,13 @@ export default function DosenRPSPage() {
     }
 
     if (searchQuery) {
-      filtered = filtered.filter(rps => 
-        rps.mata_kuliah_nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        rps.kode_mk.toLowerCase().includes(searchQuery.toLowerCase())
-      )
+      const query = searchQuery.toLowerCase()
+      filtered = filtered.filter(rps => {
+        const mkInfo = getMataKuliahInfo(rps.mata_kuliah_id)
+        const namaMatKul = rps.mata_kuliah_nama || mkInfo?.nama || ''
+        const kodeMK = rps.kode_mk || mkInfo?.kode || ''
+        return namaMatKul.toLowerCase().includes(query) || kodeMK.toLowerCase().includes(query)
+      })
     }
 
     return filtered
@@ -131,7 +165,15 @@ export default function DosenRPSPage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <div className="text-center space-y-4">
+            <div className="flex justify-center">
+              <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+            </div>
+            <div>
+              <p className="text-slate-700 font-medium">Memuat data RPS Anda...</p>
+              <p className="text-sm text-slate-500 mt-1">Tunggu sebentar</p>
+            </div>
+          </div>
         </div>
       </DashboardLayout>
     )
@@ -141,8 +183,13 @@ export default function DosenRPSPage() {
     return (
       <DashboardLayout>
         <div className="flex flex-col items-center justify-center h-64 space-y-4">
-          <AlertCircle className="h-12 w-12 text-red-500" />
-          <p className="text-lg text-gray-600">{error}</p>
+          <div className="rounded-full bg-red-100 p-4">
+            <AlertCircle className="h-12 w-12 text-red-600" />
+          </div>
+          <div className="text-center space-y-2">
+            <p className="text-lg font-semibold text-slate-900">Oops! Gagal Memuat Data</p>
+            <p className="text-sm text-slate-600">{error}</p>
+          </div>
           <Button onClick={fetchRPS}>Coba Lagi</Button>
         </div>
       </DashboardLayout>
@@ -233,30 +280,47 @@ export default function DosenRPSPage() {
             const status = statusConfig[rps.status]
             const StatusIcon = status.icon
             
+            // Get mata kuliah info from separate list if not in RPS response
+            const mkInfo = getMataKuliahInfo(rps.mata_kuliah_id)
+            
+            // Identitas RPS - prioritize RPS data, fallback to mata kuliah data
+            const namaMatKul = rps.mata_kuliah_nama || mkInfo?.nama || 'Mata Kuliah Belum Dipilih'
+            const kodeMK = rps.kode_mk || mkInfo?.kode || '-'
+            const sks = rps.sks || mkInfo?.sks || '-'
+            const semester = rps.semester || mkInfo?.semester || '-'
+            const tahunAkademik = rps.tahun_akademik || rps.tahun_ajaran || '-'
+            const semesterType = rps.semester_type ? `(${rps.semester_type === 'ganjil' ? 'Ganjil' : 'Genap'})` : ''
+            
             return (
-              <Card key={rps.id} className="transition-all hover:shadow-md">
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-4">
+              <Card key={rps.id} className="transition-all hover:shadow-md hover:shadow-blue-100 duration-300">
+                <CardContent className="p-4 md:p-6">
+                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                    <div className="flex items-start gap-3 md:gap-4 flex-1">
                       <div className={cn(
-                        "flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl",
+                        "flex h-12 md:h-14 w-12 md:w-14 flex-shrink-0 items-center justify-center rounded-lg md:rounded-xl",
                         status.color
                       )}>
-                        <StatusIcon className="h-7 w-7" />
+                        <StatusIcon className="h-6 md:h-7 w-6 md:w-7" />
                       </div>
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-lg font-semibold text-slate-900">{rps.mata_kuliah_nama}</h3>
+                          <h3 className="text-lg font-semibold text-slate-900">
+                            {namaMatKul}
+                          </h3>
                           <Badge variant={status.variant}>{status.label}</Badge>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                          <span className="font-mono">{rps.kode_mk}</span>
+                          <span className="font-mono bg-slate-100 px-2 py-0.5 rounded">{kodeMK}</span>
                           <span>•</span>
-                          <span>{rps.sks} SKS</span>
+                          <span>{sks} SKS</span>
                           <span>•</span>
-                          <span>Semester {rps.semester}</span>
-                          <span>•</span>
-                          <span>{rps.tahun_akademik}</span>
+                          <span>Semester {semester}</span>
+                          {tahunAkademik !== '-' && (
+                            <>
+                              <span>•</span>
+                              <span>{tahunAkademik} {semesterType}</span>
+                            </>
+                          )}
                         </div>
                         {rps.status === 'rejected' && rps.review_notes && (
                           <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3">
@@ -274,18 +338,18 @@ export default function DosenRPSPage() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-end gap-1 md:gap-2 flex-wrap md:flex-nowrap">
                       {rps.status === 'draft' && (
                         <>
-                          <Button variant="outline" size="sm" asChild>
+                          <Button variant="outline" size="sm" asChild className="text-xs md:text-sm">
                             <Link href={`/dosen/rps/edit/${rps.id}`}>
-                              <Edit className="h-4 w-4" />
-                              Edit
+                              <Edit className="h-3 md:h-4 w-3 md:w-4" />
+                              <span className="hidden sm:inline">Edit</span>
                             </Link>
                           </Button>
-                          <Button size="sm" onClick={() => handleSubmitRPS(rps.id)}>
-                            <Send className="h-4 w-4" />
-                            Submit
+                          <Button size="sm" onClick={() => handleSubmitRPS(rps.id)} className="text-xs md:text-sm">
+                            <Send className="h-3 md:h-4 w-3 md:w-4" />
+                            <span className="hidden sm:inline">Submit</span>
                           </Button>
                         </>
                       )}

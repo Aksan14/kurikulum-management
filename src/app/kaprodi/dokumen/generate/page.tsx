@@ -1,201 +1,210 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { DashboardLayout } from '@/components/layout'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { 
   FileOutput,
   Download,
   FileText,
-  Eye,
-  Calendar,
   CheckCircle,
   Clock,
   AlertTriangle,
-  Filter,
   Search,
-  Settings,
   RefreshCw,
-  FileSpreadsheet,
-
   Loader2,
-  BookOpen,
-  GraduationCap,
-  Users
+  Trash2,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { documentService } from '@/lib/api'
+import type { Document, DocumentTemplate } from '@/lib/api/documents'
 
-interface DocumentTemplate {
-  id: string
-  name: string
-  description: string
-  type: 'kurikulum' | 'rps' | 'cpl' | 'laporan'
-  format: 'pdf' | 'docx' | 'xlsx'
-  icon: any
-  lastGenerated?: string
-  status: 'available' | 'generating' | 'error'
-  downloadCount: number
-}
-
-const documentTemplates: DocumentTemplate[] = [
-  {
-    id: '1',
-    name: 'Dokumen Kurikulum Lengkap',
-    description: 'Dokumen kurikulum program studi lengkap dengan semua CPL dan mata kuliah',
-    type: 'kurikulum',
-    format: 'pdf',
-    icon: BookOpen,
-    lastGenerated: '2024-11-20T10:30:00',
-    status: 'available',
-    downloadCount: 15
-  },
-  {
-    id: '2',
-    name: 'Matrix CPL-CPMK',
-    description: 'Matrix pemetaan Capaian Pembelajaran Lulusan dengan CPMK',
-    type: 'cpl',
-    format: 'xlsx',
-    icon: FileSpreadsheet,
-    lastGenerated: '2024-11-18T14:20:00',
-    status: 'available',
-    downloadCount: 8
-  },
-  {
-    id: '3',
-    name: 'Kumpulan RPS Semester',
-    description: 'Kumpulan RPS untuk semester yang dipilih',
-    type: 'rps',
-    format: 'pdf',
-    icon: FileText,
-    lastGenerated: '2024-11-15T09:15:00',
-    status: 'available',
-    downloadCount: 23
-  },
-  {
-    id: '4',
-    name: 'Laporan Evaluasi Kurikulum',
-    description: 'Laporan evaluasi dan analisis kurikulum program studi',
-    type: 'laporan',
-    format: 'pdf',
-    icon: FileOutput,
-    status: 'generating',
-    downloadCount: 5
-  },
-  {
-    id: '5',
-    name: 'Silabus Mata Kuliah',
-    description: 'Silabus lengkap semua mata kuliah dalam program studi',
-    type: 'kurikulum',
-    format: 'docx',
-    icon: BookOpen,
-    lastGenerated: '2024-11-10T16:45:00',
-    status: 'available',
-    downloadCount: 12
-  },
-  {
-    id: '6',
-    name: 'Distribusi CPL per Semester',
-    description: 'Grafik dan tabel distribusi CPL per semester',
-    type: 'cpl',
-    format: 'pdf',
-    icon: GraduationCap,
-    status: 'error',
-    downloadCount: 3
-  }
-]
-
-const formatColors = {
+const formatColors: Record<string, string> = {
   pdf: 'bg-red-100 text-red-800',
   docx: 'bg-blue-100 text-blue-800',
   xlsx: 'bg-green-100 text-green-800'
 }
 
-const statusColors = {
-  available: 'bg-green-100 text-green-800 border-green-200',
-  generating: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-  error: 'bg-red-100 text-red-800 border-red-200'
-}
-
-const statusIcons = {
-  available: CheckCircle,
-  generating: Clock,
-  error: AlertTriangle
+const statusColors: Record<string, string> = {
+  ready: 'bg-green-100 text-green-800 border-green-200',
+  processing: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+  failed: 'bg-red-100 text-red-800 border-red-200',
+  archived: 'bg-gray-100 text-gray-800 border-gray-200'
 }
 
 export default function GenerateDocumentPage() {
+  const [templates, setTemplates] = useState<DocumentTemplate[]>([])
+  const [documents, setDocuments] = useState<Document[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedType, setSelectedType] = useState<string>('all')
   const [selectedFormat, setSelectedFormat] = useState<string>('all')
   const [generatingDocs, setGeneratingDocs] = useState<Set<string>>(new Set())
-
-  const filteredTemplates = documentTemplates.filter(template => {
-    const matchesSearch = template.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         template.description.toLowerCase().includes(searchQuery.toLowerCase())
-    
-    const matchesType = selectedType === 'all' || template.type === selectedType
-    const matchesFormat = selectedFormat === 'all' || template.format === selectedFormat
-    
-    return matchesSearch && matchesType && matchesFormat
+  
+  const [showGenerateDialog, setShowGenerateDialog] = useState(false)
+  const [selectedTemplate, setSelectedTemplate] = useState<DocumentTemplate | null>(null)
+  const [generateForm, setGenerateForm] = useState({
+    tahun: new Date().getFullYear().toString(),
+    file_type: 'pdf' as 'pdf' | 'docx' | 'xlsx',
+    sections: [] as string[]
   })
 
-  const handleGenerate = async (templateId: string) => {
-    setGeneratingDocs(prev => new Set(prev).add(templateId))
-    
+  const fetchData = useCallback(async () => {
     try {
-      // Simulate document generation
-      await new Promise(resolve => setTimeout(resolve, 3000))
-      
-      console.log('Document generated:', templateId)
-      
-      // In real app, this would trigger download
-      const template = documentTemplates.find(t => t.id === templateId)
-      if (template) {
-        const blob = new Blob(['Mock document content'], { type: 'application/pdf' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `${template.name}.${template.format}`
-        a.click()
-        URL.revokeObjectURL(url)
+      setLoading(true)
+      setError(null)
+
+      const [templatesRes, documentsRes] = await Promise.all([
+        documentService.templates.getAll(),
+        documentService.getAll({ limit: 50 })
+      ])
+
+      if (templatesRes.data) {
+        setTemplates(Array.isArray(templatesRes.data) ? templatesRes.data : [])
       }
-    } catch (error) {
-      console.error('Error generating document:', error)
+
+      if (documentsRes.data) {
+        const docs = Array.isArray(documentsRes.data) 
+          ? documentsRes.data 
+          : (documentsRes.data as { data?: Document[] }).data || []
+        setDocuments(docs)
+      }
+    } catch (err) {
+      console.error('Error fetching documents:', err)
+      setError('Gagal memuat data dokumen')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  const handleGenerate = async () => {
+    if (!selectedTemplate) return
+
+    try {
+      setGeneratingDocs(prev => new Set(prev).add(selectedTemplate.id))
+      setShowGenerateDialog(false)
+
+      const response = await documentService.generate({
+        template_id: selectedTemplate.id,
+        tahun: generateForm.tahun,
+        file_type: generateForm.file_type,
+        sections: generateForm.sections.length > 0 ? generateForm.sections : undefined
+      })
+
+      if (response.success) {
+        await fetchData()
+        alert('Dokumen berhasil digenerate!')
+      }
+    } catch (err) {
+      console.error('Error generating document:', err)
+      alert('Gagal generate dokumen')
     } finally {
       setGeneratingDocs(prev => {
         const newSet = new Set(prev)
-        newSet.delete(templateId)
+        if (selectedTemplate) newSet.delete(selectedTemplate.id)
         return newSet
       })
     }
   }
 
-  const handlePreview = (templateId: string) => {
-    console.log('Preview document:', templateId)
-    // In real app, this would show preview modal or redirect to preview page
+  const handleDownload = (doc: Document) => {
+    if (doc.file_url) {
+      window.open(doc.file_url, '_blank')
+    } else {
+      const url = documentService.getDownloadUrl(doc.id)
+      window.open(url, '_blank')
+    }
   }
 
-  const getGenerationProgress = () => {
-    const totalDocs = documentTemplates.length
-    const availableDocs = documentTemplates.filter(t => t.status === 'available').length
-    return (availableDocs / totalDocs) * 100
+  const handleDelete = async (docId: string) => {
+    if (!confirm('Apakah Anda yakin ingin menghapus dokumen ini?')) return
+
+    try {
+      await documentService.delete(docId)
+      await fetchData()
+    } catch (err) {
+      console.error('Error deleting document:', err)
+      alert('Gagal menghapus dokumen')
+    }
+  }
+
+  const openGenerateDialog = (template: DocumentTemplate) => {
+    setSelectedTemplate(template)
+    setGenerateForm({
+      tahun: new Date().getFullYear().toString(),
+      file_type: 'pdf',
+      sections: []
+    })
+    setShowGenerateDialog(true)
+  }
+
+  const filteredTemplates = templates.filter(template => {
+    const matchesSearch = template.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         (template.deskripsi || '').toLowerCase().includes(searchQuery.toLowerCase())
+    return matchesSearch
+  })
+
+  const filteredDocuments = documents.filter(doc => {
+    const matchesFormat = selectedFormat === 'all' || doc.file_type === selectedFormat
+    return matchesFormat
+  })
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'ready': return CheckCircle
+      case 'processing': return Clock
+      case 'failed': return AlertTriangle
+      default: return FileText
+    }
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        </div>
+      </DashboardLayout>
+    )
   }
 
   return (
     <DashboardLayout>
       <div className="space-y-8">
-        {/* Header */}
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-bold text-slate-900">Generate Dokumen</h1>
-          <p className="text-slate-600">
-            Generate dan unduh berbagai dokumen kurikulum, RPS, dan laporan
-          </p>
+          <p className="text-slate-600">Generate dan unduh berbagai dokumen kurikulum, RPS, dan laporan</p>
         </div>
 
-        {/* Stats Cards */}
+        {error && (
+          <Card className="border-red-200 bg-red-50">
+            <CardContent className="p-4 flex items-center gap-2 text-red-700">
+              <AlertTriangle className="h-5 w-5" />
+              {error}
+              <Button variant="outline" size="sm" onClick={fetchData} className="ml-auto">
+                <RefreshCw className="h-4 w-4 mr-2" />Coba Lagi
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <Card>
             <CardContent className="p-6">
@@ -205,7 +214,7 @@ export default function GenerateDocumentPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-slate-600">Total Template</p>
-                  <p className="text-2xl font-bold text-slate-900">{documentTemplates.length}</p>
+                  <p className="text-2xl font-bold text-slate-900">{templates.length}</p>
                 </div>
               </div>
             </CardContent>
@@ -218,9 +227,9 @@ export default function GenerateDocumentPage() {
                   <CheckCircle className="h-6 w-6 text-green-600" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-slate-600">Tersedia</p>
+                  <p className="text-sm font-medium text-slate-600">Dokumen Tersedia</p>
                   <p className="text-2xl font-bold text-slate-900">
-                    {documentTemplates.filter(t => t.status === 'available').length}
+                    {documents.filter(d => d.status === 'ready').length}
                   </p>
                 </div>
               </div>
@@ -234,9 +243,9 @@ export default function GenerateDocumentPage() {
                   <Clock className="h-6 w-6 text-yellow-600" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-slate-600">Sedang Generate</p>
+                  <p className="text-sm font-medium text-slate-600">Sedang Diproses</p>
                   <p className="text-2xl font-bold text-slate-900">
-                    {documentTemplates.filter(t => t.status === 'generating').length + generatingDocs.size}
+                    {documents.filter(d => d.status === 'processing').length + generatingDocs.size}
                   </p>
                 </div>
               </div>
@@ -250,254 +259,193 @@ export default function GenerateDocumentPage() {
                   <Download className="h-6 w-6 text-purple-600" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-slate-600">Total Download</p>
-                  <p className="text-2xl font-bold text-slate-900">
-                    {documentTemplates.reduce((sum, t) => sum + t.downloadCount, 0)}
-                  </p>
+                  <p className="text-sm font-medium text-slate-600">Total Dokumen</p>
+                  <p className="text-2xl font-bold text-slate-900">{documents.length}</p>
                 </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Generation Progress */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <RefreshCw className="h-5 w-5 text-blue-600" />
-              Progress Generation
-            </CardTitle>
-            <CardDescription>
-              Status keseluruhan generation dokumen kurikulum
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>Dokumen tersedia</span>
-                <span>{Math.round(getGenerationProgress())}%</span>
-              </div>
-              <Progress value={getGenerationProgress()} />
-              <p className="text-xs text-slate-600">
-                {documentTemplates.filter(t => t.status === 'available').length} dari {documentTemplates.length} template tersedia
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Main Content */}
         <Tabs defaultValue="templates" className="space-y-6">
           <TabsList>
             <TabsTrigger value="templates">Template Dokumen</TabsTrigger>
-            <TabsTrigger value="history">Riwayat Generate</TabsTrigger>
-            <TabsTrigger value="settings">Pengaturan</TabsTrigger>
+            <TabsTrigger value="generated">Dokumen yang Digenerate</TabsTrigger>
           </TabsList>
 
           <TabsContent value="templates" className="space-y-6">
-            {/* Filters */}
             <Card>
               <CardContent className="p-6">
-                <div className="flex flex-col sm:flex-row gap-4">
-                  <div className="flex-1">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4" />
-                      <Input
-                        placeholder="Cari template dokumen..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <select
-                      value={selectedType}
-                      onChange={(e) => setSelectedType(e.target.value)}
-                      className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="all">Semua Jenis</option>
-                      <option value="kurikulum">Kurikulum</option>
-                      <option value="rps">RPS</option>
-                      <option value="cpl">CPL</option>
-                      <option value="laporan">Laporan</option>
-                    </select>
-                    <select
-                      value={selectedFormat}
-                      onChange={(e) => setSelectedFormat(e.target.value)}
-                      className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="all">Semua Format</option>
-                      <option value="pdf">PDF</option>
-                      <option value="docx">Word</option>
-                      <option value="xlsx">Excel</option>
-                    </select>
-                  </div>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4" />
+                  <Input
+                    placeholder="Cari template dokumen..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
                 </div>
               </CardContent>
             </Card>
 
-            {/* Document Templates Grid */}
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {filteredTemplates.map((template) => {
-                const StatusIcon = statusIcons[template.status]
-                const TemplateIcon = template.icon
-                const isGenerating = generatingDocs.has(template.id) || template.status === 'generating'
-                
-                return (
+              {filteredTemplates.length === 0 ? (
+                <Card className="col-span-full">
+                  <CardContent className="p-12 text-center">
+                    <FileText className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+                    <p className="text-slate-500">Tidak ada template ditemukan</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                filteredTemplates.map((template) => (
                   <Card key={template.id} className="hover:shadow-md transition-shadow">
                     <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100">
-                            <TemplateIcon className="h-6 w-6 text-slate-600" />
-                          </div>
-                          <div>
-                            <CardTitle className="text-lg">{template.name}</CardTitle>
-                            <div className="flex items-center gap-2 mt-1">
-                              <Badge className={formatColors[template.format]} variant="outline">
-                                {template.format.toUpperCase()}
-                              </Badge>
-                              <Badge className={statusColors[template.status]} variant="outline">
-                                <StatusIcon className="h-3 w-3 mr-1" />
-                                {template.status === 'available' ? 'Tersedia' :
-                                 template.status === 'generating' ? 'Generating' : 'Error'}
-                              </Badge>
-                            </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100">
+                          <FileText className="h-6 w-6 text-slate-600" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-lg">{template.nama}</CardTitle>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant="outline">v{template.version}</Badge>
+                            {template.is_active && <Badge className="bg-green-100 text-green-700">Aktif</Badge>}
                           </div>
                         </div>
                       </div>
-                      <CardDescription className="mt-2">
-                        {template.description}
-                      </CardDescription>
+                      <CardDescription className="mt-2">{template.deskripsi || 'Tidak ada deskripsi'}</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <div className="space-y-4">
-                        {template.lastGenerated && (
-                          <div className="flex items-center gap-2 text-sm text-slate-600">
-                            <Calendar className="h-4 w-4" />
-                            <span>Terakhir: {new Date(template.lastGenerated).toLocaleString('id-ID')}</span>
-                          </div>
+                      <Button
+                        className="w-full"
+                        onClick={() => openGenerateDialog(template)}
+                        disabled={generatingDocs.has(template.id) || !template.is_active}
+                      >
+                        {generatingDocs.has(template.id) ? (
+                          <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating...</>
+                        ) : (
+                          <><FileOutput className="h-4 w-4 mr-2" />Generate</>
                         )}
-
-                        <div className="flex items-center gap-2 text-sm text-slate-600">
-                          <Download className="h-4 w-4" />
-                          <span>{template.downloadCount} kali diunduh</span>
-                        </div>
-
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="flex-1"
-                            onClick={() => handlePreview(template.id)}
-                            disabled={template.status === 'error'}
-                          >
-                            <Eye className="h-4 w-4 mr-2" />
-                            Preview
-                          </Button>
-                          <Button
-                            size="sm"
-                            className="flex-1"
-                            onClick={() => handleGenerate(template.id)}
-                            disabled={isGenerating || template.status === 'error'}
-                          >
-                            {isGenerating ? (
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            ) : (
-                              <FileOutput className="h-4 w-4 mr-2" />
-                            )}
-                            {isGenerating ? 'Generating...' : 'Generate'}
-                          </Button>
-                        </div>
-
-                        {template.status === 'error' && (
-                          <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 p-2 rounded">
-                            <AlertTriangle className="h-4 w-4" />
-                            <span>Generation gagal. Silakan coba lagi.</span>
-                          </div>
-                        )}
-                      </div>
+                      </Button>
                     </CardContent>
                   </Card>
-                )
-              })}
+                ))
+              )}
             </div>
-
-            {filteredTemplates.length === 0 && (
-              <Card>
-                <CardContent className="p-12 text-center">
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100">
-                      <FileText className="h-8 w-8 text-slate-400" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-slate-900">Tidak ada template ditemukan</h3>
-                      <p className="text-sm text-slate-600 mt-1">
-                        Coba ubah filter atau kata kunci pencarian Anda
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </TabsContent>
 
-          <TabsContent value="history" className="space-y-6">
+          <TabsContent value="generated" className="space-y-6">
             <Card>
-              <CardHeader>
-                <CardTitle>Riwayat Generation Dokumen</CardTitle>
-                <CardDescription>
-                  Daftar dokumen yang pernah di-generate dalam 30 hari terakhir
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="text-center py-12">
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100">
-                      <Clock className="h-8 w-8 text-slate-400" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-slate-900">Riwayat Generation</h3>
-                      <p className="text-sm text-slate-600 mt-1">
-                        Fitur riwayat generation akan segera tersedia
-                      </p>
-                    </div>
-                  </div>
-                </div>
+              <CardContent className="p-6 flex gap-4">
+                <Select value={selectedFormat} onValueChange={setSelectedFormat}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Format" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Semua Format</SelectItem>
+                    <SelectItem value="pdf">PDF</SelectItem>
+                    <SelectItem value="docx">Word</SelectItem>
+                    <SelectItem value="xlsx">Excel</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button variant="outline" onClick={fetchData}>
+                  <RefreshCw className="h-4 w-4 mr-2" />Refresh
+                </Button>
               </CardContent>
             </Card>
-          </TabsContent>
 
-          <TabsContent value="settings" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings className="h-5 w-5 text-slate-600" />
-                  Pengaturan Generation
-                </CardTitle>
-                <CardDescription>
-                  Konfigurasi pengaturan generation dokumen
-                </CardDescription>
+                <CardTitle>Dokumen yang Digenerate</CardTitle>
+                <CardDescription>Daftar dokumen yang telah digenerate</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-center py-12">
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100">
-                      <Settings className="h-8 w-8 text-slate-400" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-slate-900">Pengaturan Generation</h3>
-                      <p className="text-sm text-slate-600 mt-1">
-                        Fitur pengaturan generation akan segera tersedia
-                      </p>
-                    </div>
+                {filteredDocuments.length === 0 ? (
+                  <div className="text-center py-12">
+                    <FileText className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+                    <p className="text-slate-500">Belum ada dokumen yang digenerate</p>
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredDocuments.map((doc) => {
+                      const StatusIcon = getStatusIcon(doc.status)
+                      return (
+                        <div key={doc.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                          <div className="flex items-center gap-4">
+                            <div className={`p-2 rounded-lg ${formatColors[doc.file_type] || 'bg-gray-100'}`}>
+                              <FileText className="h-5 w-5" />
+                            </div>
+                            <div>
+                              <p className="font-medium">{doc.template_name || 'Dokumen'}</p>
+                              <p className="text-sm text-slate-500">
+                                {doc.tahun} • {doc.file_type.toUpperCase()} • {new Date(doc.created_at).toLocaleDateString('id-ID')}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge className={statusColors[doc.status]}>
+                              <StatusIcon className="h-3 w-3 mr-1" />
+                              {doc.status === 'ready' ? 'Siap' : doc.status === 'processing' ? 'Memproses' : doc.status === 'failed' ? 'Gagal' : doc.status}
+                            </Badge>
+                            {doc.status === 'ready' && (
+                              <Button size="sm" variant="outline" onClick={() => handleDownload(doc)}>
+                                <Download className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button size="sm" variant="ghost" onClick={() => handleDelete(doc.id)}>
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={showGenerateDialog} onOpenChange={setShowGenerateDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Generate Dokumen</DialogTitle>
+            <DialogDescription>{selectedTemplate?.nama}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Tahun</Label>
+              <Input
+                value={generateForm.tahun}
+                onChange={(e) => setGenerateForm(prev => ({ ...prev, tahun: e.target.value }))}
+                placeholder="2024"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Format Output</Label>
+              <Select 
+                value={generateForm.file_type} 
+                onValueChange={(value: 'pdf' | 'docx' | 'xlsx') => setGenerateForm(prev => ({ ...prev, file_type: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pdf">PDF</SelectItem>
+                  <SelectItem value="docx">Word (DOCX)</SelectItem>
+                  <SelectItem value="xlsx">Excel (XLSX)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowGenerateDialog(false)}>Batal</Button>
+            <Button onClick={handleGenerate}>
+              <FileOutput className="h-4 w-4 mr-2" />Generate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   )
 }

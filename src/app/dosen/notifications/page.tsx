@@ -17,29 +17,39 @@ import {
   Check,
   Trash2,
   Loader2,
-  BellOff
+  BellOff,
+  RefreshCw
 } from "lucide-react"
-import { rpsService } from "@/lib/api/rps"
+import { notificationService, type Notification } from "@/lib/api/notifications"
 import { authService } from "@/lib/api/auth"
-import type { RPS } from "@/lib/api/rps"
 import { formatDate } from "@/lib/utils"
 
-interface Notification {
-  id: string
-  title: string
-  message: string
-  type: 'success' | 'warning' | 'info' | 'error'
-  timestamp: string
-  read: boolean
-  link?: string
+// Map API notification type to display type
+type DisplayType = 'success' | 'warning' | 'info' | 'error'
+
+const mapNotificationType = (type: Notification['type']): DisplayType => {
+  switch (type) {
+    case 'approval':
+      return 'success'
+    case 'rejection':
+      return 'warning'
+    case 'deadline':
+      return 'error'
+    case 'assignment':
+    case 'document':
+    case 'info':
+    case 'system':
+    default:
+      return 'info'
+  }
 }
 
 export default function DosenNotificationsPage() {
   const router = useRouter()
-  const [rpsList, setRpsList] = useState<RPS[]>([])
+  const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     // Check if user is authenticated
@@ -51,80 +61,77 @@ export default function DosenNotificationsPage() {
     try {
       setLoading(true)
       setError(null)
-      const response = await rpsService.getMy()
-      const rpsData = response.data?.data || []
-      setRpsList(rpsData)
+      const response = await notificationService.getAll({ sort_order: 'desc' })
       
-      // Generate notifications from RPS status
-      const generatedNotifications: Notification[] = []
-      
-      rpsData.forEach((rps: RPS) => {
-        if (rps.status === 'approved') {
-          generatedNotifications.push({
-            id: `approved-${rps.id}`,
-            title: 'RPS Disetujui',
-            message: `RPS ${rps.mata_kuliah_nama || `MK-${rps.mata_kuliah_id}`} telah disetujui oleh Kaprodi.`,
-            type: 'success',
-            timestamp: rps.updated_at || new Date().toISOString(),
-            read: false,
-            link: `/dosen/rps/${rps.id}`
-          })
-        } else if (rps.status === 'rejected') {
-          generatedNotifications.push({
-            id: `rejected-${rps.id}`,
-            title: 'RPS Perlu Revisi',
-            message: `RPS ${rps.mata_kuliah_nama || `MK-${rps.mata_kuliah_id}`} perlu direvisi. ${rps.review_notes || ''}`,
-            type: 'warning',
-            timestamp: rps.updated_at || new Date().toISOString(),
-            read: false,
-            link: `/dosen/rps/${rps.id}`
-          })
-        } else if (rps.status === 'submitted') {
-          generatedNotifications.push({
-            id: `submitted-${rps.id}`,
-            title: 'RPS Sedang Direview',
-            message: `RPS ${rps.mata_kuliah_nama || `MK-${rps.mata_kuliah_id}`} sedang dalam proses review oleh Kaprodi.`,
-            type: 'info',
-            timestamp: rps.updated_at || new Date().toISOString(),
-            read: true,
-            link: `/dosen/rps/${rps.id}`
-          })
+      // Handle various response formats
+      let notifData: Notification[] = []
+      if (response.data) {
+        // If response.data is paginated (has nested data array)
+        if (Array.isArray(response.data.data)) {
+          notifData = response.data.data
+        } 
+        // If response.data is directly an array
+        else if (Array.isArray(response.data)) {
+          notifData = response.data
         }
-      })
+      }
       
-      // Sort by timestamp (newest first)
-      generatedNotifications.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      setNotifications(generatedNotifications)
+      setNotifications(notifData)
     } catch (err) {
-      console.error('Error fetching data:', err)
+      console.error('Error fetching notifications:', err)
       setError(err instanceof Error ? err.message : 'Gagal memuat notifikasi')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [router])
 
   useEffect(() => {
     fetchData()
   }, [fetchData])
 
-  const markAsRead = (id: string) => {
-    setNotifications(prev => 
-      prev.map(n => n.id === id ? { ...n, read: true } : n)
-    )
+  const markAsRead = async (id: string) => {
+    try {
+      setActionLoading(id)
+      await notificationService.markAsRead(id)
+      setNotifications(prev => 
+        prev.map(n => n.id === id ? { ...n, is_read: true, read_at: new Date().toISOString() } : n)
+      )
+    } catch (err) {
+      console.error('Error marking as read:', err)
+    } finally {
+      setActionLoading(null)
+    }
   }
 
-  const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+  const markAllAsRead = async () => {
+    try {
+      setActionLoading('all')
+      await notificationService.markAllAsRead()
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true, read_at: new Date().toISOString() })))
+    } catch (err) {
+      console.error('Error marking all as read:', err)
+    } finally {
+      setActionLoading(null)
+    }
   }
 
-  const deleteNotification = (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id))
+  const deleteNotification = async (id: string) => {
+    try {
+      setActionLoading(`delete-${id}`)
+      await notificationService.delete(id)
+      setNotifications(prev => prev.filter(n => n.id !== id))
+    } catch (err) {
+      console.error('Error deleting notification:', err)
+    } finally {
+      setActionLoading(null)
+    }
   }
 
-  const unreadCount = notifications.filter(n => !n.read).length
+  const unreadCount = notifications.filter(n => !n.is_read).length
 
   const getIcon = (type: Notification['type']) => {
-    switch (type) {
+    const displayType = mapNotificationType(type)
+    switch (displayType) {
       case 'success':
         return <CheckCircle className="h-5 w-5 text-green-500" />
       case 'warning':
@@ -136,9 +143,10 @@ export default function DosenNotificationsPage() {
     }
   }
 
-  const getBgColor = (type: Notification['type'], read: boolean) => {
-    if (read) return 'bg-white'
-    switch (type) {
+  const getBgColor = (type: Notification['type'], isRead: boolean) => {
+    if (isRead) return 'bg-white'
+    const displayType = mapNotificationType(type)
+    switch (displayType) {
       case 'success':
         return 'bg-green-50'
       case 'warning':
@@ -182,17 +190,27 @@ export default function DosenNotificationsPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Notifikasi</h1>
             <p className="text-slate-600 mt-1">
-              {unreadCount > 0 
+              {unreadCount > 0
                 ? `Anda memiliki ${unreadCount} notifikasi belum dibaca`
                 : 'Semua notifikasi sudah dibaca'}
             </p>
           </div>
-          {unreadCount > 0 && (
-            <Button variant="outline" onClick={markAllAsRead}>
-              <Check className="h-4 w-4 mr-2" />
-              Tandai Semua Dibaca
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={fetchData} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
             </Button>
-          )}
+            {unreadCount > 0 && (
+              <Button variant="outline" onClick={markAllAsRead} disabled={actionLoading === 'all'}>
+                {actionLoading === 'all' ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4 mr-2" />
+                )}
+                Tandai Semua Dibaca
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Stats */}
@@ -256,7 +274,7 @@ export default function DosenNotificationsPage() {
                 {notifications.map((notification) => (
                   <div
                     key={notification.id}
-                    className={`flex items-start gap-4 rounded-lg border p-4 transition-colors ${getBgColor(notification.type, notification.read)}`}
+                    className={`flex items-start gap-4 rounded-lg border p-4 transition-colors ${getBgColor(notification.type, notification.is_read)}`}
                   >
                     <div className="flex-shrink-0 mt-0.5">
                       {getIcon(notification.type)}
@@ -264,7 +282,7 @@ export default function DosenNotificationsPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="font-medium text-slate-900">{notification.title}</p>
-                        {!notification.read && (
+                        {!notification.is_read && (
                           <Badge className="bg-blue-100 text-blue-700 text-xs">Baru</Badge>
                         )}
                       </div>
@@ -272,11 +290,11 @@ export default function DosenNotificationsPage() {
                       <div className="flex items-center gap-4 mt-2">
                         <span className="text-xs text-slate-500 flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
-                          {formatDate(notification.timestamp)}
+                          {formatDate(notification.created_at)}
                         </span>
-                        {notification.link && (
+                        {notification.action_url && (
                           <a
-                            href={notification.link}
+                            href={notification.action_url}
                             className="text-xs text-blue-600 hover:underline flex items-center gap-1"
                           >
                             <FileText className="h-3 w-3" />
@@ -286,14 +304,19 @@ export default function DosenNotificationsPage() {
                       </div>
                     </div>
                     <div className="flex gap-1">
-                      {!notification.read && (
+                      {!notification.is_read && (
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => markAsRead(notification.id)}
                           className="h-8 w-8 p-0"
+                          disabled={actionLoading === notification.id}
                         >
-                          <Check className="h-4 w-4" />
+                          {actionLoading === notification.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Check className="h-4 w-4" />
+                          )}
                         </Button>
                       )}
                       <Button
@@ -301,8 +324,13 @@ export default function DosenNotificationsPage() {
                         size="sm"
                         onClick={() => deleteNotification(notification.id)}
                         className="h-8 w-8 p-0 text-red-500 hover:text-red-600"
+                        disabled={actionLoading === `delete-${notification.id}`}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        {actionLoading === `delete-${notification.id}` ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
                       </Button>
                     </div>
                   </div>

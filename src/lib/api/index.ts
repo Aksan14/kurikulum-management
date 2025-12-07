@@ -61,17 +61,30 @@ export type {
   RencanaPembelajaran, 
   BahanBacaan, 
   Evaluasi,
+  SubCPMK,
+  RencanaTugas,
+  AnalisisKetercapaianCPL,
+  SkalaPenilaian,
   CreateRPSRequest, 
   UpdateRPSRequest, 
   RPSListParams,
   CreateCPMKRequest,
   UpdateCPMKRequest,
+  CreateSubCPMKRequest,
+  UpdateSubCPMKRequest,
   CreateRencanaPembelajaranRequest,
   UpdateRencanaPembelajaranRequest,
+  CreateRencanaTugasRequest,
+  UpdateRencanaTugasRequest,
   CreateBahanBacaanRequest,
   UpdateBahanBacaanRequest,
   CreateEvaluasiRequest,
   UpdateEvaluasiRequest,
+  CreateAnalisisKetercapaianRequest,
+  UpdateAnalisisKetercapaianRequest,
+  CreateSkalaPenilaianRequest,
+  BatchSkalaPenilaianRequest,
+  UpdateSkalaPenilaianRequest,
   ReviewRequest
 } from './rps';
 
@@ -105,3 +118,18 @@ export type {
 // File Service
 export { default as fileService } from './files';
 export type { UploadedFile } from './files';
+
+// CPL-MK Mapping Service
+export { cplMKMappingService } from './cpl-mk-mapping';
+export type { CPLMKMapping, CreateMappingRequest, UpdateMappingRequest, MappingListParams } from './cpl-mk-mapping';
+
+// Backup Service
+export { default as backupService } from './backup';
+export type { 
+  Backup, 
+  CreateBackupRequest, 
+  RestoreBackupRequest,
+  BackupSettings,
+  UpdateBackupSettingsRequest,
+  BackupListParams 
+} from './backup';

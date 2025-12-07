@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useCallback } from "react"
-import { useRouter, useParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { 
   ArrowLeft,
   ArrowRight,
@@ -29,7 +29,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
+import { 
   Select,
   SelectContent,
   SelectItem,
@@ -40,11 +40,9 @@ import { rpsService, cplService, mataKuliahService, authService } from "@/lib/ap
 import { ApiError } from "@/lib/api/client"
 import type { CPL } from "@/lib/api/cpl"
 import type { MataKuliah } from "@/lib/api/mata-kuliah"
-import type { RPS } from "@/lib/api/rps"
 import Link from "next/link"
 
 interface CPMKForm {
-  id?: string
   kode: string
   deskripsi: string
   cpl_ids: string[]
@@ -52,7 +50,6 @@ interface CPMKForm {
 
 // Sub-CPMK for each CPMK
 interface SubCPMKForm {
-  id?: string
   kode: string
   deskripsi: string
   urutan: number
@@ -123,7 +120,6 @@ interface RencanaTugasForm {
 
 // Analisis Ketercapaian
 interface AnalisisKetercapaianForm {
-  id?: string // ID dari backend untuk update/delete
   minggu_mulai: number
   minggu_selesai: number | null
   cpl_id: string
@@ -136,7 +132,6 @@ interface AnalisisKetercapaianForm {
 
 // Skala Penilaian
 interface SkalaPenilaianForm {
-  id?: string  // For update/delete tracking
   nilai_min: number
   nilai_max: number
   huruf_mutu: string
@@ -144,26 +139,22 @@ interface SkalaPenilaianForm {
   is_lulus: boolean
 }
 
-export default function EditRPSPage() {
+export default function CreateRPSPage() {
   const router = useRouter()
-  const params = useParams()
-  const editRpsId = params.id as string // ID RPS dari URL
   
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [rpsData, setRpsData] = useState<RPS | null>(null) // Data RPS yang sedang diedit
   
   const [mataKuliahList, setMataKuliahList] = useState<MataKuliah[]>([])
   const [cplList, setCplList] = useState<CPL[]>([])
   const [activeTab, setActiveTab] = useState("info")
   
   // Step tracking - untuk melacak data yang sudah dikirim
+  const [rpsId, setRpsId] = useState<string | null>(null) // ID RPS yang sudah dibuat
   const [completedSteps, setCompletedSteps] = useState<string[]>([])
   const [stepErrors, setStepErrors] = useState<Record<string, string[]>>({})
   const [createdCpmkIds, setCreatedCpmkIds] = useState<Record<string, string>>({}) // Map index to created CPMK ID
-  const [deletedCpmkIds, setDeletedCpmkIds] = useState<string[]>([]) // Track deleted CPMK IDs for backend delete
-  const [deletedSubCpmkIds, setDeletedSubCpmkIds] = useState<string[]>([]) // Track deleted Sub-CPMK IDs for backend delete
   
   // Urutan tabs
   const tabOrder = ["info", "cpmk", "subcpmk", "rencana", "tugas", "analisis", "pustaka", "evaluasi", "skala"]
@@ -213,8 +204,7 @@ export default function EditRPSPage() {
 
   // Analisis Ketercapaian state
   const [analisisKetercapaian, setAnalisisKetercapaian] = useState<AnalisisKetercapaianForm[]>([])
-  const [deletedAnalisisIds, setDeletedAnalisisIds] = useState<string[]>([]) // Track deleted IDs for backend delete
-  
+
   // Skala Penilaian state
   const [skalaPenilaian, setSkalaPenilaian] = useState<SkalaPenilaianForm[]>([
     { nilai_min: 85, nilai_max: 100, huruf_mutu: 'A', bobot_nilai: 4.0, is_lulus: true },
@@ -227,7 +217,6 @@ export default function EditRPSPage() {
     { nilai_min: 50, nilai_max: 54, huruf_mutu: 'D', bobot_nilai: 1.0, is_lulus: false },
     { nilai_min: 0, nilai_max: 49, huruf_mutu: 'E', bobot_nilai: 0.0, is_lulus: false }
   ])
-  const [deletedSkalaIds, setDeletedSkalaIds] = useState<string[]>([]) // Track deleted skala IDs for backend delete
   
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [expandedWeek, setExpandedWeek] = useState<number | null>(1)
@@ -238,333 +227,14 @@ export default function EditRPSPage() {
       return
     }
 
-    if (!editRpsId) {
-      setError('ID RPS tidak ditemukan')
-      setLoading(false)
-      return
-    }
-
     try {
       setLoading(true)
       setError(null)
       
-      // Fetch RPS data, mata kuliah list, and CPL list in parallel
-      const [rpsResponse, mkResponse, cplResponse] = await Promise.all([
-        rpsService.getById(editRpsId),
+      const [mkResponse, cplResponse] = await Promise.all([
         mataKuliahService.getMy(),
         cplService.getActive()
       ])
-      
-      // Check if RPS was fetched successfully
-      if (!rpsResponse.success || !rpsResponse.data) {
-        setError('Gagal memuat data RPS: ' + (rpsResponse.message || 'Data tidak ditemukan'))
-        setLoading(false)
-        return
-      }
-      
-      const rps = rpsResponse.data
-      setRpsData(rps)
-      
-      // Populate form data from RPS
-      setFormData({
-        mata_kuliah_id: rps.mata_kuliah_id || "",
-        tahun_ajaran: rps.tahun_ajaran || "2024/2025",
-        semester_type: (rps.semester_type || "ganjil") as 'ganjil' | 'genap',
-        tanggal_penyusunan: rps.tanggal_penyusunan || new Date().toISOString().split('T')[0],
-        penyusun_nama: rps.penyusun_nama || "",
-        penyusun_nidn: rps.penyusun_nidn || "",
-        koordinator_rmk_nama: rps.koordinator_rmk_nama || "",
-        koordinator_rmk_nidn: rps.koordinator_rmk_nidn || "",
-        kaprodi_nama: rps.kaprodi_nama || "",
-        kaprodi_nidn: rps.kaprodi_nidn || "",
-        fakultas: rps.fakultas || "",
-        program_studi: rps.program_studi || "",
-        deskripsi_mk: rps.deskripsi_mk || rps.deskripsi || "",
-        capaian_pembelajaran: rps.capaian_pembelajaran || "",
-        metode_pembelajaran: rps.metode_pembelajaran || ["Ceramah", "Diskusi", "Praktikum"],
-        media_pembelajaran: rps.media_pembelajaran || ["Laptop", "Projector", "LMS"]
-      })
-      
-      // Load CPMK data
-      let loadedSubCpmkData: SubCPMKForm[][] = []
-      if (rps.cpmk && rps.cpmk.length > 0) {
-        const cpmkFormList: CPMKForm[] = rps.cpmk.map((c) => ({
-          id: c.id,
-          kode: c.kode,
-          deskripsi: c.deskripsi,
-          cpl_ids: c.cpl_ids || []
-        }))
-        setCpmkList(cpmkFormList)
-        
-        // Map CPMK IDs for reference
-        const cpmkIdMap: Record<string, string> = {}
-        rps.cpmk.forEach((c, idx) => {
-          cpmkIdMap[String(idx)] = c.id
-        })
-        setCreatedCpmkIds(cpmkIdMap)
-        
-        // Load Sub-CPMK for each CPMK
-        for (const cpmk of rps.cpmk) {
-          try {
-            const subCpmkResponse = await rpsService.subCpmk.getAll(cpmk.id)
-            if (subCpmkResponse.data && Array.isArray(subCpmkResponse.data)) {
-              loadedSubCpmkData.push(subCpmkResponse.data.map((s) => ({
-                id: s.id,
-                kode: s.kode || "",
-                deskripsi: s.deskripsi || "",
-                urutan: s.urutan || 1
-              })))
-            } else {
-              loadedSubCpmkData.push([])
-            }
-          } catch {
-            loadedSubCpmkData.push([])
-          }
-        }
-        setSubCpmkList(loadedSubCpmkData)
-      }
-      
-      // Load Rencana Pembelajaran
-      if (rps.rencana_pembelajaran && rps.rencana_pembelajaran.length > 0) {
-        const rpList: RencanaPembelajaranForm[] = rps.rencana_pembelajaran.map((rp) => ({
-          pertemuan: rp.pertemuan,
-          minggu_mulai: rp.minggu_mulai || rp.pertemuan,
-          minggu_selesai: rp.minggu_selesai || rp.pertemuan,
-          topik: rp.topik || "",
-          sub_topik: rp.sub_topik || [],
-          cpmk_ids: rp.cpmk_ids || [],
-          sub_cpmk_ids: rp.sub_cpmk_ids || [],
-          indikator: rp.indikator || [],
-          metode: rp.metode || "Ceramah dan Praktik",
-          media_lms: rp.media_lms || "Google Classroom",
-          waktu: rp.waktu || 150,
-          waktu_tm: rp.waktu_tm || 2,
-          waktu_bm: rp.waktu_bm || 3,
-          waktu_pt: rp.waktu_pt || 2,
-          materi: rp.materi || "",
-          teknik_penilaian: rp.teknik_penilaian || "",
-          kriteria_penilaian: rp.kriteria_penilaian || "",
-          bobot_penilaian: rp.bobot_penilaian || 0
-        }))
-        // Fill remaining weeks up to 16
-        for (let i = rpList.length + 1; i <= 16; i++) {
-          rpList.push({
-            pertemuan: i,
-            minggu_mulai: i,
-            minggu_selesai: i,
-            topik: "",
-            sub_topik: [],
-            cpmk_ids: [],
-            sub_cpmk_ids: [],
-            indikator: [],
-            metode: "Ceramah dan Praktik",
-            media_lms: "Google Classroom",
-            waktu: 150,
-            waktu_tm: 2,
-            waktu_bm: 3,
-            waktu_pt: 2,
-            materi: "",
-            teknik_penilaian: "",
-            kriteria_penilaian: "",
-            bobot_penilaian: 0
-          })
-        }
-        setRencanaPembelajaran(rpList)
-      } else {
-        // Initialize empty rencana pembelajaran (16 weeks)
-        const initialRP: RencanaPembelajaranForm[] = []
-        for (let i = 1; i <= 16; i++) {
-          initialRP.push({
-            pertemuan: i,
-            minggu_mulai: i,
-            minggu_selesai: i,
-            topik: "",
-            sub_topik: [],
-            cpmk_ids: [],
-            sub_cpmk_ids: [],
-            indikator: [],
-            metode: "Ceramah dan Praktik",
-            media_lms: "Google Classroom",
-            waktu: 150,
-            waktu_tm: 2,
-            waktu_bm: 3,
-            waktu_pt: 2,
-            materi: "",
-            teknik_penilaian: "",
-            kriteria_penilaian: "",
-            bobot_penilaian: 0
-          })
-        }
-        setRencanaPembelajaran(initialRP)
-      }
-      
-      // Load Rencana Tugas - fetch from dedicated endpoint
-      let loadedRencanaTugas: RencanaTugasForm[] = []
-      try {
-        const rencanaTugasResponse = await rpsService.rencanaTugas?.getAll(editRpsId)
-        if (rencanaTugasResponse?.success && rencanaTugasResponse.data && rencanaTugasResponse.data.length > 0) {
-          loadedRencanaTugas = rencanaTugasResponse.data.map((t) => ({
-            nomor_tugas: t.nomor_tugas || 1,
-            judul: t.judul || "",
-            sub_cpmk_ids: t.sub_cpmk_ids || [],
-            indikator_keberhasilan: t.indikator_keberhasilan || "",
-            batas_waktu_minggu: t.batas_waktu_minggu || 1,
-            batas_waktu_tanggal: t.batas_waktu_tanggal || "",
-            petunjuk_pengerjaan: t.petunjuk_pengerjaan || "",
-            jenis_tugas: (t.jenis_tugas || 'Individu') as 'Individu' | 'Kelompok',
-            luaran_tugas: t.luaran_tugas || "",
-            kriteria_penilaian: t.kriteria_penilaian || "",
-            teknik_penilaian: t.teknik_penilaian || "",
-            bobot: t.bobot || 0
-          }))
-          setRencanaTugas(loadedRencanaTugas)
-          console.log('✅ Loaded', rencanaTugasResponse.data.length, 'rencana tugas from dedicated endpoint')
-        } else if (rps.rencana_tugas && rps.rencana_tugas.length > 0) {
-          // Fallback to RPS response data
-          loadedRencanaTugas = rps.rencana_tugas.map((t) => ({
-            nomor_tugas: t.nomor_tugas || 1,
-            judul: t.judul || "",
-            sub_cpmk_ids: t.sub_cpmk_ids || [],
-            indikator_keberhasilan: t.indikator_keberhasilan || "",
-            batas_waktu_minggu: t.batas_waktu_minggu || 1,
-            batas_waktu_tanggal: t.batas_waktu_tanggal || "",
-            petunjuk_pengerjaan: t.petunjuk_pengerjaan || "",
-            jenis_tugas: (t.jenis_tugas || 'Individu') as 'Individu' | 'Kelompok',
-            luaran_tugas: t.luaran_tugas || "",
-            kriteria_penilaian: t.kriteria_penilaian || "",
-            teknik_penilaian: t.teknik_penilaian || "",
-            bobot: t.bobot || 0
-          }))
-          setRencanaTugas(loadedRencanaTugas)
-          console.log('✅ Loaded', rps.rencana_tugas.length, 'rencana tugas from RPS response')
-        }
-      } catch (err) {
-        console.error('Error loading rencana tugas:', err)
-      }
-      
-      // Load Analisis Ketercapaian - fetch from dedicated endpoint
-      let loadedAnalisisKetercapaian: AnalisisKetercapaianForm[] = []
-      try {
-        const analisisResponse = await rpsService.analisisKetercapaian?.getAll(editRpsId)
-        if (analisisResponse?.success && analisisResponse.data && analisisResponse.data.length > 0) {
-          loadedAnalisisKetercapaian = analisisResponse.data.map((a) => ({
-            id: a.id, // Simpan ID untuk update/delete
-            minggu_mulai: a.minggu_mulai || 1,
-            minggu_selesai: a.minggu_selesai || null,
-            cpl_id: a.cpl_id || "",
-            cpmk_ids: a.cpmk_ids || [],
-            sub_cpmk_ids: a.sub_cpmk_ids || [],
-            topik_materi: a.topik_materi || "",
-            jenis_assessment: a.jenis_assessment || "",
-            bobot_kontribusi: a.bobot_kontribusi || 0
-          }))
-          setAnalisisKetercapaian(loadedAnalisisKetercapaian)
-          console.log('✅ Loaded', analisisResponse.data.length, 'analisis ketercapaian from dedicated endpoint')
-        } else if (rps.analisis_ketercapaian && rps.analisis_ketercapaian.length > 0) {
-          // Fallback to RPS response data
-          loadedAnalisisKetercapaian = rps.analisis_ketercapaian.map((a) => ({
-            id: a.id, // Simpan ID untuk update/delete
-            minggu_mulai: a.minggu_mulai || 1,
-            minggu_selesai: a.minggu_selesai || null,
-            cpl_id: a.cpl_id || "",
-            cpmk_ids: a.cpmk_ids || [],
-            sub_cpmk_ids: a.sub_cpmk_ids || [],
-            topik_materi: a.topik_materi || "",
-            jenis_assessment: a.jenis_assessment || "",
-            bobot_kontribusi: a.bobot_kontribusi || 0
-          }))
-          setAnalisisKetercapaian(loadedAnalisisKetercapaian)
-          console.log('✅ Loaded', rps.analisis_ketercapaian.length, 'analisis ketercapaian from RPS response')
-        }
-      } catch (err) {
-        console.error('Error loading analisis ketercapaian:', err)
-      }
-      
-      // Load Bahan Bacaan
-      if (rps.bahan_bacaan && rps.bahan_bacaan.length > 0) {
-        setBahanBacaan(rps.bahan_bacaan.map((b, idx) => ({
-          judul: b.judul || "",
-          penulis: b.penulis || "",
-          tahun: b.tahun || new Date().getFullYear(),
-          penerbit: b.penerbit || "",
-          jenis: (b.jenis || 'buku') as 'buku' | 'jurnal' | 'artikel' | 'website' | 'modul',
-          isbn: b.isbn || "",
-          halaman: b.halaman || "",
-          url: b.url || "",
-          is_wajib: b.is_wajib !== undefined ? b.is_wajib : true,
-          urutan: b.urutan || idx + 1
-        })))
-      }
-      
-      // Load Evaluasi - fetch from dedicated endpoint
-      let loadedEvaluasi: EvaluasiForm[] = []
-      try {
-        const evaluasiResponse = await rpsService.evaluasi?.getAll(editRpsId)
-        if (evaluasiResponse?.success && evaluasiResponse.data && evaluasiResponse.data.length > 0) {
-          loadedEvaluasi = evaluasiResponse.data.map((e, idx) => ({
-            komponen: e.komponen || "",
-            teknik_penilaian: e.teknik_penilaian || "",
-            instrumen: e.instrumen || "",
-            bobot: e.bobot || 0,
-            minggu_mulai: e.minggu_mulai || 1,
-            minggu_selesai: e.minggu_selesai || 16,
-            topik_materi: e.topik_materi || "",
-            jenis_assessment: e.jenis_assessment || "Formatif",
-            urutan: e.urutan || idx + 1
-          }))
-          setEvaluasi(loadedEvaluasi)
-          console.log('✅ Loaded', evaluasiResponse.data.length, 'evaluasi from dedicated endpoint')
-        } else if (rps.evaluasi && rps.evaluasi.length > 0) {
-          // Fallback to RPS response data
-          loadedEvaluasi = rps.evaluasi.map((e, idx) => ({
-            komponen: e.komponen || e.jenis || "",
-            teknik_penilaian: e.teknik_penilaian || "",
-            instrumen: e.instrumen || "",
-            bobot: e.bobot || 0,
-            minggu_mulai: e.minggu_mulai || 1,
-            minggu_selesai: e.minggu_selesai || 16,
-            topik_materi: e.topik_materi || "",
-            jenis_assessment: e.jenis_assessment || "Formatif",
-            urutan: e.urutan || idx + 1
-          }))
-          setEvaluasi(loadedEvaluasi)
-          console.log('✅ Loaded', rps.evaluasi.length, 'evaluasi from RPS response')
-        }
-      } catch (err) {
-        console.error('Error loading evaluasi:', err)
-      }
-      
-      // Load Skala Penilaian - fetch from dedicated endpoint
-      let loadedSkala: SkalaPenilaianForm[] = []
-      try {
-        const skalaResponse = await rpsService.skalaPenilaian?.getAll(editRpsId)
-        if (skalaResponse?.success && skalaResponse.data && skalaResponse.data.length > 0) {
-          loadedSkala = skalaResponse.data.map((s) => ({
-            id: s.id,  // Include ID for update/delete
-            nilai_min: s.nilai_min || 0,
-            nilai_max: s.nilai_max || 100,
-            huruf_mutu: s.huruf_mutu || "",
-            bobot_nilai: s.bobot_nilai || 0,
-            is_lulus: s.is_lulus !== undefined ? s.is_lulus : true
-          }))
-          setSkalaPenilaian(loadedSkala)
-          console.log('✅ Loaded', skalaResponse.data.length, 'skala penilaian from dedicated endpoint')
-        } else if (rps.skala_penilaian && rps.skala_penilaian.length > 0) {
-          // Fallback to RPS response data
-          loadedSkala = rps.skala_penilaian.map((s) => ({
-            id: s.id,  // Include ID for update/delete
-            nilai_min: s.nilai_min || 0,
-            nilai_max: s.nilai_max || 100,
-            huruf_mutu: s.huruf_mutu || "",
-            bobot_nilai: s.bobot_nilai || 0,
-            is_lulus: s.is_lulus !== undefined ? s.is_lulus : true
-          }))
-          setSkalaPenilaian(loadedSkala)
-          console.log('✅ Loaded', rps.skala_penilaian.length, 'skala penilaian from RPS response')
-        }
-      } catch (err) {
-        console.error('Error loading skala penilaian:', err)
-      }
       
       // Handle mata kuliah response
       let mkData: MataKuliah[] = []
@@ -588,66 +258,31 @@ export default function EditRPSPage() {
       }
       setCplList(cplData)
       
-      // Determine completed steps based on loaded data
-      const completed: string[] = []
-      
-      // Info Dasar - sudah ada jika RPS berhasil di-load
-      if (rps.mata_kuliah_id && rps.deskripsi_mk) {
-        completed.push("info")
+      // Initialize rencana pembelajaran (16 weeks)
+      const initialRP: RencanaPembelajaranForm[] = []
+      for (let i = 1; i <= 16; i++) {
+        initialRP.push({
+          pertemuan: i,
+          minggu_mulai: i,
+          minggu_selesai: i,
+          topik: "",
+          sub_topik: [],
+          cpmk_ids: [],
+          sub_cpmk_ids: [],
+          indikator: [],
+          metode: "Ceramah dan Praktik",
+          media_lms: "Google Classroom",
+          waktu: 150,
+          waktu_tm: 2,
+          waktu_bm: 3,
+          waktu_pt: 2,
+          materi: "",
+          teknik_penilaian: "",
+          kriteria_penilaian: "",
+          bobot_penilaian: 0
+        })
       }
-      
-      // CPMK - ada jika ada CPMK dengan deskripsi
-      if (rps.cpmk && rps.cpmk.length > 0 && rps.cpmk.some(c => c.deskripsi)) {
-        completed.push("cpmk")
-      }
-      
-      // Sub-CPMK - ada jika ada sub-CPMK
-      const hasSubCpmk = loadedSubCpmkData.some((arr: SubCPMKForm[]) => arr.length > 0)
-      if (hasSubCpmk) {
-        completed.push("subcpmk")
-      }
-      
-      // Rencana Pembelajaran - ada jika ada yang memiliki topik
-      if (rps.rencana_pembelajaran && rps.rencana_pembelajaran.some(rp => rp.topik)) {
-        completed.push("rencana")
-      }
-      
-      // Rencana Tugas - ada jika ada tugas yang sudah di-load
-      if (loadedRencanaTugas.length > 0 && loadedRencanaTugas.some(t => t.judul)) {
-        completed.push("tugas")
-      }
-      
-      // Analisis Ketercapaian - ada jika ada analisis yang sudah di-load
-      if (loadedAnalisisKetercapaian.length > 0 && loadedAnalisisKetercapaian.some(a => a.cpl_id)) {
-        completed.push("analisis")
-      }
-      
-      // Bahan Bacaan/Pustaka - ada jika ada bahan bacaan dengan judul
-      if (rps.bahan_bacaan && rps.bahan_bacaan.some(b => b.judul)) {
-        completed.push("pustaka")
-      }
-      
-      // Evaluasi - ada jika ada evaluasi yang sudah di-load
-      if (loadedEvaluasi.length > 0 && loadedEvaluasi.some(e => e.komponen)) {
-        completed.push("evaluasi")
-      }
-      
-      // Skala Penilaian - ada jika ada skala yang di-load
-      if (loadedSkala.length > 0 && loadedSkala.some(s => s.huruf_mutu)) {
-        completed.push("skala")
-      }
-      
-      setCompletedSteps(completed)
-      
-      // Navigate to first incomplete step
-      const tabOrder = ["info", "cpmk", "subcpmk", "rencana", "tugas", "analisis", "pustaka", "evaluasi", "skala"]
-      const firstIncomplete = tabOrder.find(tab => !completed.includes(tab))
-      if (firstIncomplete) {
-        setActiveTab(firstIncomplete)
-      } else {
-        // All complete, go to last tab
-        setActiveTab("skala")
-      }
+      setRencanaPembelajaran(initialRP)
       
     } catch (err) {
       console.error('Error fetching initial data:', err)
@@ -655,7 +290,7 @@ export default function EditRPSPage() {
     } finally {
       setLoading(false)
     }
-  }, [router, editRpsId])
+  }, [router])
 
   useEffect(() => {
     fetchInitialData()
@@ -837,49 +472,7 @@ export default function EditRPSPage() {
         break
         
       case "tugas":
-        // Validasi tugas yang diisi - semua field required harus terisi
-        const filledTugas = rencanaTugas.filter(t => t.judul?.trim())
-        
-        if (filledTugas.length === 0 && rencanaTugas.length > 0) {
-          // Ada tugas tapi judul kosong
-          errors.push("Tugas yang ditambahkan harus memiliki judul")
-        }
-        
-        for (const tugas of filledTugas) {
-          const tugasErrors: string[] = []
-          
-          // Required fields
-          if (!tugas.judul?.trim()) {
-            tugasErrors.push("Judul wajib diisi")
-          }
-          if (!tugas.jenis_tugas) {
-            tugasErrors.push("Jenis tugas wajib dipilih")
-          }
-          if (tugas.bobot <= 0) {
-            tugasErrors.push("Bobot harus lebih dari 0")
-          }
-          if (tugas.batas_waktu_minggu <= 0 || tugas.batas_waktu_minggu > 16) {
-            tugasErrors.push("Batas waktu harus antara minggu 1-16")
-          }
-          
-          // Recommended fields (warning only)
-          if (!tugas.indikator_keberhasilan?.trim()) {
-            tugasErrors.push("Indikator keberhasilan sebaiknya diisi")
-          }
-          if (!tugas.petunjuk_pengerjaan?.trim()) {
-            tugasErrors.push("Petunjuk pengerjaan sebaiknya diisi")
-          }
-          
-          if (tugasErrors.length > 0) {
-            errors.push(`Tugas "${tugas.judul || tugas.nomor_tugas}": ${tugasErrors.join(", ")}`)
-          }
-        }
-        
-        // Total bobot check
-        const totalBobotTugas = filledTugas.reduce((sum, t) => sum + (t.bobot || 0), 0)
-        if (totalBobotTugas > 100) {
-          errors.push(`Total bobot tugas (${totalBobotTugas}%) melebihi 100%`)
-        }
+        // Rencana tugas optional
         break
         
       case "analisis":
@@ -920,38 +513,56 @@ export default function EditRPSPage() {
       
       switch (activeTab) {
         case "info": {
-          // Update existing RPS (note: mata_kuliah_id cannot be changed after creation)
-          const updateRes = await rpsService.update(editRpsId, {
-            tahun_ajaran: formData.tahun_ajaran,
-            semester_type: formData.semester_type,
-            deskripsi_mk: formData.deskripsi_mk.trim(),
-            capaian_pembelajaran: formData.capaian_pembelajaran || undefined,
-            metode_pembelajaran: formData.metode_pembelajaran.length > 0 ? formData.metode_pembelajaran : undefined,
-            media_pembelajaran: formData.media_pembelajaran.length > 0 ? formData.media_pembelajaran : undefined
-          })
-          if (!updateRes.success) {
-            errors.push(`Update RPS gagal: ${updateRes.message}`)
+          // Create RPS header
+          if (rpsId) {
+            // Update existing RPS (note: mata_kuliah_id cannot be changed after creation)
+            const updateRes = await rpsService.update(rpsId, {
+              tahun_ajaran: formData.tahun_ajaran,
+              semester_type: formData.semester_type,
+              deskripsi_mk: formData.deskripsi_mk.trim(),
+              capaian_pembelajaran: formData.capaian_pembelajaran || undefined,
+              metode_pembelajaran: formData.metode_pembelajaran.length > 0 ? formData.metode_pembelajaran : undefined,
+              media_pembelajaran: formData.media_pembelajaran.length > 0 ? formData.media_pembelajaran : undefined
+            })
+            if (!updateRes.success) {
+              errors.push(`Update RPS gagal: ${updateRes.message}`)
+            }
+          } else {
+            // Create new RPS
+            const createRes = await rpsService.create({
+              mata_kuliah_id: formData.mata_kuliah_id,
+              tahun_ajaran: formData.tahun_ajaran,
+              semester_type: formData.semester_type,
+              tanggal_penyusunan: formData.tanggal_penyusunan,
+              penyusun_nama: formData.penyusun_nama || undefined,
+              penyusun_nidn: formData.penyusun_nidn || undefined,
+              koordinator_rmk_nama: formData.koordinator_rmk_nama || undefined,
+              koordinator_rmk_nidn: formData.koordinator_rmk_nidn || undefined,
+              kaprodi_nama: formData.kaprodi_nama || undefined,
+              kaprodi_nidn: formData.kaprodi_nidn || undefined,
+              fakultas: formData.fakultas || undefined,
+              program_studi: formData.program_studi || undefined,
+              deskripsi_mk: formData.deskripsi_mk.trim(),
+              capaian_pembelajaran: formData.capaian_pembelajaran || undefined,
+              metode_pembelajaran: formData.metode_pembelajaran.length > 0 ? formData.metode_pembelajaran : undefined,
+              media_pembelajaran: formData.media_pembelajaran.length > 0 ? formData.media_pembelajaran : undefined
+            })
+            
+            if (!createRes.success || !createRes.data?.id) {
+              errors.push(`Gagal membuat RPS: ${createRes.message || 'ID tidak ditemukan'}`)
+            } else {
+              setRpsId(createRes.data.id)
+              console.log('✅ RPS berhasil dibuat dengan ID:', createRes.data.id)
+            }
           }
           break
         }
         
         case "cpmk": {
-          // First, delete CPMKs that were marked for deletion
-          for (const cpmkId of deletedCpmkIds) {
-            try {
-              const deleteRes = await rpsService.cpmk.delete(cpmkId)
-              if (!deleteRes.success) {
-                errors.push(`Gagal menghapus CPMK: ${deleteRes.message || 'Error'}`)
-              } else {
-                console.log(`✅ CPMK ${cpmkId} berhasil dihapus`)
-              }
-            } catch (err) {
-              errors.push(`Gagal menghapus CPMK: ${getErrorMessage(err)}`)
-            }
+          if (!rpsId) {
+            errors.push("RPS belum dibuat. Silakan isi Info Dasar terlebih dahulu.")
+            break
           }
-          
-          // Clear deleted IDs after processing
-          setDeletedCpmkIds([])
           
           const newCreatedIds: Record<string, string> = { ...createdCpmkIds }
           
@@ -965,7 +576,7 @@ export default function EditRPSPage() {
               }
               
               try {
-                const cpmkRes = await rpsService.cpmk.create(editRpsId, {
+                const cpmkRes = await rpsService.cpmk.create(rpsId, {
                   kode: cpmk.kode,
                   deskripsi: cpmk.deskripsi.trim(),
                   cpl_ids: cpmk.cpl_ids.length > 0 ? cpmk.cpl_ids : undefined,
@@ -989,78 +600,30 @@ export default function EditRPSPage() {
         }
         
         case "subcpmk": {
-          if (!editRpsId) {
+          if (!rpsId) {
             errors.push("RPS belum dibuat")
             break
           }
           
-          // First, delete Sub-CPMKs that were marked for deletion
-          for (const subCpmkId of deletedSubCpmkIds) {
-            try {
-              const deleteRes = await rpsService.subCpmk?.delete(subCpmkId)
-              if (!deleteRes.success) {
-                errors.push(`Gagal menghapus Sub-CPMK: ${deleteRes.message || 'Error'}`)
-              } else {
-                console.log(`✅ Sub-CPMK ${subCpmkId} berhasil dihapus`)
-              }
-            } catch (err) {
-              errors.push(`Gagal menghapus Sub-CPMK: ${getErrorMessage(err)}`)
-            }
-          }
-          
-          // Clear deleted IDs after processing
-          setDeletedSubCpmkIds([])
-          
           for (let cpmkIdx = 0; cpmkIdx < subCpmkList.length; cpmkIdx++) {
             const cpmkId = createdCpmkIds[cpmkIdx.toString()]
-            console.log(`🔍 CPMK index ${cpmkIdx}, ID: ${cpmkId}, available IDs:`, createdCpmkIds)
-            
-            if (!cpmkId) {
-              errors.push(`CPMK ${cpmkIdx + 1} belum dibuat. Simpan CPMK terlebih dahulu.`)
-              continue
-            }
+            if (!cpmkId) continue
             
             const subs = subCpmkList[cpmkIdx] || []
-            console.log(`📋 Processing ${subs.length} Sub-CPMK for CPMK ${cpmkIdx + 1}`)
-            
             for (const sub of subs) {
               if (sub.deskripsi?.trim()) {
                 try {
-                  let subRes: any
-                  
-                  if (sub.id) {
-                    // Update existing Sub-CPMK
-                    console.log(`📝 Updating Sub-CPMK ${sub.kode} (ID: ${sub.id})`)
-                    subRes = await rpsService.subCpmk?.update(sub.id, {
-                      kode: sub.kode,
-                      deskripsi: sub.deskripsi.trim(),
-                      urutan: sub.urutan
-                    })
+                  const subRes = await rpsService.subCpmk?.create(cpmkId, {
+                    kode: sub.kode,
+                    deskripsi: sub.deskripsi.trim(),
+                    urutan: sub.urutan
+                  })
+                  if (subRes && !subRes.success) {
+                    errors.push(`Sub-CPMK ${sub.kode}: ${subRes.message || 'Gagal'}`)
                   } else {
-                    // Create new Sub-CPMK
-                    console.log(`➕ Creating Sub-CPMK ${sub.kode}`)
-                    subRes = await rpsService.subCpmk?.create(cpmkId, {
-                      kode: sub.kode,
-                      deskripsi: sub.deskripsi.trim(),
-                      urutan: sub.urutan
-                    })
-                  }
-                  
-                  console.log(`📤 Sub-CPMK ${sub.kode} response:`, subRes)
-                  
-                  // Check if response exists and is successful
-                  if (!subRes) {
-                    errors.push(`Sub-CPMK ${sub.kode}: Service tidak tersedia`)
-                  } else if (subRes.data && (subRes.data.id || sub.id)) {
-                    // If we have data with ID, consider it successful regardless of success flag
-                    console.log(`✅ Sub-CPMK ${sub.kode} ${sub.id ? 'diperbarui' : 'dibuat'}`)
-                  } else if (!subRes.success) {
-                    errors.push(`Sub-CPMK ${sub.kode}: ${subRes.message || 'Gagal memproses Sub-CPMK'}`)
-                  } else {
-                    console.log(`✅ Sub-CPMK ${sub.kode} ${sub.id ? 'diperbarui' : 'dibuat'}`)
+                    console.log(`✅ Sub-CPMK ${sub.kode} berhasil`)
                   }
                 } catch (err) {
-                  console.error(`❌ Sub-CPMK ${sub.kode} error:`, err)
                   errors.push(`Sub-CPMK ${sub.kode}: ${getErrorMessage(err)}`)
                 }
               }
@@ -1070,7 +633,7 @@ export default function EditRPSPage() {
         }
         
         case "rencana": {
-          if (!editRpsId) {
+          if (!rpsId) {
             errors.push("RPS belum dibuat. Silakan simpan Info Dasar terlebih dahulu.")
             break
           }
@@ -1101,7 +664,7 @@ export default function EditRPSPage() {
                 
                 console.log(`📤 Mengirim rencana pembelajaran pertemuan ${rp.pertemuan}:`, requestData)
                 
-                const rpRes = await rpsService.rencanaPembelajaran.create(editRpsId, requestData)
+                const rpRes = await rpsService.rencanaPembelajaran.create(rpsId, requestData)
                 if (!rpRes.success) {
                   const errorDetail = rpRes.message || rpRes.error || 'Gagal menyimpan'
                   errors.push(`Pertemuan ${rp.pertemuan} (${rp.topik}): ${errorDetail}`)
@@ -1120,67 +683,43 @@ export default function EditRPSPage() {
         }
         
         case "tugas": {
-          if (!editRpsId) {
+          if (!rpsId) {
             errors.push("RPS belum dibuat")
             break
           }
           
-          // Filter tugas yang valid (semua field required terisi)
-          const validTugas = rencanaTugas.filter(t => 
-            t.judul?.trim() && 
-            t.jenis_tugas && 
-            t.bobot > 0 &&
-            t.batas_waktu_minggu > 0 &&
-            t.batas_waktu_minggu <= 16
-          )
-          
-          if (validTugas.length === 0 && rencanaTugas.length > 0) {
-            errors.push("Tidak ada tugas yang valid untuk disimpan. Pastikan semua field required terisi.")
-            break
-          }
-          
-          for (const tugas of validTugas) {
-            try {
-              const tugasRes = await rpsService.rencanaTugas?.create(editRpsId, {
-                nomor_tugas: tugas.nomor_tugas,
-                judul: tugas.judul.trim(),
-                sub_cpmk_ids: tugas.sub_cpmk_ids || [],
-                indikator_keberhasilan: tugas.indikator_keberhasilan?.trim() || "",
-                batas_waktu_minggu: tugas.batas_waktu_minggu,
-                petunjuk_pengerjaan: tugas.petunjuk_pengerjaan?.trim() || "",
-                jenis_tugas: tugas.jenis_tugas,
-                luaran_tugas: tugas.luaran_tugas?.trim() || "",
-                kriteria_penilaian: tugas.kriteria_penilaian?.trim() || "",
-                teknik_penilaian: tugas.teknik_penilaian || "",
-                bobot: tugas.bobot
-              })
-              if (tugasRes && !tugasRes.success) {
-                errors.push(`Tugas "${tugas.judul}": ${tugasRes.message || 'Gagal'}`)
-              } else {
-                console.log(`✅ Tugas "${tugas.judul}" berhasil disimpan`)
+          for (const tugas of rencanaTugas) {
+            if (tugas.judul?.trim()) {
+              try {
+                const tugasRes = await rpsService.rencanaTugas?.create(rpsId, {
+                  nomor_tugas: tugas.nomor_tugas,
+                  judul: tugas.judul.trim(),
+                  sub_cpmk_ids: tugas.sub_cpmk_ids.length > 0 ? tugas.sub_cpmk_ids : undefined,
+                  indikator_keberhasilan: tugas.indikator_keberhasilan || undefined,
+                  batas_waktu_minggu: tugas.batas_waktu_minggu > 0 ? tugas.batas_waktu_minggu : undefined,
+                  batas_waktu_tanggal: tugas.batas_waktu_tanggal || undefined,
+                  petunjuk_pengerjaan: tugas.petunjuk_pengerjaan || undefined,
+                  jenis_tugas: tugas.jenis_tugas,
+                  luaran_tugas: tugas.luaran_tugas || undefined,
+                  kriteria_penilaian: tugas.kriteria_penilaian || undefined,
+                  teknik_penilaian: tugas.teknik_penilaian || undefined,
+                  bobot: tugas.bobot
+                })
+                if (tugasRes && !tugasRes.success) {
+                  errors.push(`Tugas "${tugas.judul}": ${tugasRes.message || 'Gagal'}`)
+                } else {
+                  console.log(`✅ Tugas "${tugas.judul}" berhasil`)
+                }
+              } catch (err) {
+                errors.push(`Tugas "${tugas.judul}": ${getErrorMessage(err)}`)
               }
-            } catch (err) {
-              errors.push(`Tugas "${tugas.judul}": ${getErrorMessage(err)}`)
             }
-          }
-          
-          // Info tugas yang dilewati
-          const skippedTugas = rencanaTugas.filter(t => 
-            t.judul?.trim() && (
-              t.bobot <= 0 || 
-              t.batas_waktu_minggu <= 0 || 
-              t.batas_waktu_minggu > 16 ||
-              !t.jenis_tugas
-            )
-          )
-          if (skippedTugas.length > 0) {
-            errors.push(`${skippedTugas.length} tugas dilewati karena data tidak lengkap`)
           }
           break
         }
         
         case "analisis": {
-          if (!editRpsId) {
+          if (!rpsId) {
             errors.push("RPS belum dibuat")
             break
           }
@@ -1188,7 +727,7 @@ export default function EditRPSPage() {
           for (const analisis of analisisKetercapaian) {
             if (analisis.cpl_id) {
               try {
-                const requestData = {
+                const analisisRes = await rpsService.analisisKetercapaian?.create(rpsId, {
                   minggu_mulai: analisis.minggu_mulai,
                   minggu_selesai: analisis.minggu_selesai || 16,
                   cpl_id: analisis.cpl_id,
@@ -1197,52 +736,22 @@ export default function EditRPSPage() {
                   sub_cpmk_ids: analisis.sub_cpmk_ids.length > 0 ? analisis.sub_cpmk_ids : undefined,
                   topik_materi: analisis.topik_materi || undefined,
                   jenis_assessment: analisis.jenis_assessment || undefined
-                }
-                
-                let analisisRes
-                if (analisis.id) {
-                  // Update existing
-                  analisisRes = await rpsService.analisisKetercapaian?.update(analisis.id, requestData)
-                  if (analisisRes && !analisisRes.success) {
-                    errors.push(`Analisis Update: ${analisisRes.message || 'Gagal'}`)
-                  } else {
-                    console.log(`✅ Analisis ketercapaian updated: ${analisis.id}`)
-                  }
+                })
+                if (analisisRes && !analisisRes.success) {
+                  errors.push(`Analisis: ${analisisRes.message || 'Gagal'}`)
                 } else {
-                  // Create new
-                  analisisRes = await rpsService.analisisKetercapaian?.create(editRpsId, requestData)
-                  if (analisisRes && !analisisRes.success) {
-                    errors.push(`Analisis Create: ${analisisRes.message || 'Gagal'}`)
-                  } else {
-                    console.log(`✅ Analisis ketercapaian created`)
-                  }
+                  console.log(`✅ Analisis ketercapaian berhasil`)
                 }
               } catch (err) {
                 errors.push(`Analisis: ${getErrorMessage(err)}`)
               }
             }
           }
-          
-          // Delete removed items
-          for (const deletedId of deletedAnalisisIds) {
-            try {
-              const deleteRes = await rpsService.analisisKetercapaian?.delete(deletedId)
-              if (deleteRes && !deleteRes.success) {
-                errors.push(`Analisis Delete: ${deleteRes.message || 'Gagal'}`)
-              } else {
-                console.log(`✅ Analisis ketercapaian deleted: ${deletedId}`)
-              }
-            } catch (err) {
-              errors.push(`Analisis Delete: ${getErrorMessage(err)}`)
-            }
-          }
-          // Clear deleted IDs after processing
-          setDeletedAnalisisIds([])
           break
         }
         
         case "pustaka": {
-          if (!editRpsId) {
+          if (!rpsId) {
             errors.push("RPS belum dibuat")
             break
           }
@@ -1251,7 +760,7 @@ export default function EditRPSPage() {
             const bb = bahanBacaan[i]
             if (bb.judul?.trim()) {
               try {
-                const bbRes = await rpsService.bahanBacaan.create(editRpsId, {
+                const bbRes = await rpsService.bahanBacaan.create(rpsId, {
                   judul: bb.judul.trim(),
                   penulis: bb.penulis || undefined,
                   tahun: bb.tahun > 0 ? bb.tahun : undefined,
@@ -1275,22 +784,22 @@ export default function EditRPSPage() {
         }
         
         case "evaluasi": {
-          if (!editRpsId) {
+          if (!rpsId) {
             errors.push("RPS belum dibuat")
             break
           }
           
           // Validasi total bobot harus 100%
-          const totalBobotEvaluasi = evaluasi.reduce((sum, e) => sum + (e.bobot || 0), 0)
-          if (totalBobotEvaluasi !== 100) {
-            errors.push(`Total bobot evaluasi harus 100% (saat ini ${totalBobotEvaluasi}%)`)
+          const totalBobot = evaluasi.reduce((sum, e) => sum + (e.bobot || 0), 0)
+          if (totalBobot !== 100) {
+            errors.push(`Total bobot evaluasi harus 100% (saat ini ${totalBobot}%). Tidak dapat menyimpan.`)
             break
           }
           
           for (const ev of evaluasi) {
             if (ev.komponen && ev.bobot > 0) {
               try {
-                const evRes = await rpsService.evaluasi.create(editRpsId, {
+                const evRes = await rpsService.evaluasi.create(rpsId, {
                   komponen: ev.komponen,
                   teknik_penilaian: ev.teknik_penilaian || undefined,
                   instrumen: ev.instrumen || undefined,
@@ -1315,62 +824,31 @@ export default function EditRPSPage() {
         }
         
         case "skala": {
-          if (!editRpsId) {
+          if (!rpsId) {
             errors.push("RPS belum dibuat")
             break
           }
           
-          // Process each skala penilaian - update if has ID, create if new
-          for (const skala of skalaPenilaian) {
-            if (skala.huruf_mutu) {
-              try {
-                const requestData = {
-                  nilai_min: skala.nilai_min,
-                  nilai_max: skala.nilai_max,
-                  huruf_mutu: skala.huruf_mutu,
-                  bobot_nilai: skala.bobot_nilai,
-                  is_lulus: skala.is_lulus
-                }
-                
-                let skalaRes
-                if (skala.id) {
-                  // Update existing
-                  skalaRes = await rpsService.skalaPenilaian?.update(skala.id, requestData)
-                  if (skalaRes && !skalaRes.success) {
-                    errors.push(`Skala ${skala.huruf_mutu} Update: ${skalaRes.message || 'Gagal'}`)
-                  } else {
-                    console.log(`✅ Skala penilaian ${skala.huruf_mutu} updated: ${skala.id}`)
-                  }
-                } else {
-                  // Create new
-                  skalaRes = await rpsService.skalaPenilaian?.create(editRpsId, requestData)
-                  if (skalaRes && !skalaRes.success) {
-                    errors.push(`Skala ${skala.huruf_mutu} Create: ${skalaRes.message || 'Gagal'}`)
-                  } else {
-                    console.log(`✅ Skala penilaian ${skala.huruf_mutu} created`)
-                  }
-                }
-              } catch (err) {
-                errors.push(`Skala ${skala.huruf_mutu}: ${getErrorMessage(err)}`)
-              }
-            }
-          }
-          
-          // Delete removed items
-          for (const deletedId of deletedSkalaIds) {
+          if (skalaPenilaian.length > 0) {
             try {
-              const deleteRes = await rpsService.skalaPenilaian?.delete(deletedId)
-              if (deleteRes && !deleteRes.success) {
-                errors.push(`Skala Delete: ${deleteRes.message || 'Gagal'}`)
+              const skalaRes = await rpsService.skalaPenilaian?.batchCreate(rpsId, {
+                skala_penilaian: skalaPenilaian.map(s => ({
+                  nilai_min: s.nilai_min,
+                  nilai_max: s.nilai_max,
+                  huruf_mutu: s.huruf_mutu,
+                  bobot_nilai: s.bobot_nilai,
+                  is_lulus: s.is_lulus
+                }))
+              })
+              if (skalaRes && !skalaRes.success) {
+                errors.push(`Skala Penilaian: ${skalaRes.message || 'Gagal'}`)
               } else {
-                console.log(`✅ Skala penilaian deleted: ${deletedId}`)
+                console.log(`✅ Skala Penilaian berhasil`)
               }
             } catch (err) {
-              errors.push(`Skala Delete: ${getErrorMessage(err)}`)
+              errors.push(`Skala Penilaian: ${getErrorMessage(err)}`)
             }
           }
-          // Clear deleted IDs after processing
-          setDeletedSkalaIds([])
           break
         }
       }
@@ -1452,8 +930,8 @@ export default function EditRPSPage() {
         `Ada ${allErrors.length} error saat menyimpan data:\n\n• ${allErrors.slice(0, 5).join('\n• ')}${allErrors.length > 5 ? `\n• ... dan ${allErrors.length - 5} lainnya` : ''}\n\nApakah Anda tetap ingin melihat RPS yang sudah dibuat?`
       )
       
-      if (confirmSubmit && editRpsId) {
-        router.push(`/dosen/rps/${editRpsId}`)
+      if (confirmSubmit && rpsId) {
+        router.push(`/dosen/rps/${rpsId}`)
       }
     } else {
       // Mark as completed
@@ -1462,8 +940,8 @@ export default function EditRPSPage() {
       }
       
       alert('RPS berhasil disimpan!')
-      if (editRpsId) {
-        router.push(`/dosen/rps/${editRpsId}`)
+      if (rpsId) {
+        router.push(`/dosen/rps/${rpsId}`)
       }
     }
   }
@@ -1502,41 +980,9 @@ export default function EditRPSPage() {
     }])
   }
 
-  const removeCpmk = async (index: number) => {
-    const cpmk = cpmkList[index]
-    
-    // If CPMK has an ID (either from initial load or created), mark for deletion
-    if (cpmk.id) {
-      setDeletedCpmkIds(prev => [...prev, cpmk.id!])
-    } else {
-      // Check if it was created in this session
-      const createdId = createdCpmkIds[index.toString()]
-      if (createdId) {
-        setDeletedCpmkIds(prev => [...prev, createdId])
-      }
-    }
-    
-    // Remove from local state
-    const newCpmkList = cpmkList.filter((_, i) => i !== index)
-    const newSubCpmkList = subCpmkList.filter((_, i) => i !== index)
-    
-    setCpmkList(newCpmkList)
-    setSubCpmkList(newSubCpmkList)
-    
-    // Rebuild createdCpmkIds mapping by shifting indices down
-    const newCreatedIds: Record<string, string> = {}
-    Object.entries(createdCpmkIds).forEach(([idxStr, id]) => {
-      const idx = parseInt(idxStr)
-      if (idx < index) {
-        // Keep indices before the deleted one
-        newCreatedIds[idxStr] = id
-      } else if (idx > index) {
-        // Shift indices after the deleted one down by 1
-        newCreatedIds[(idx - 1).toString()] = id
-      }
-      // Skip the deleted index
-    })
-    setCreatedCpmkIds(newCreatedIds)
+  const removeCpmk = (index: number) => {
+    setCpmkList(cpmkList.filter((_, i) => i !== index))
+    setSubCpmkList(subCpmkList.filter((_, i) => i !== index))
   }
 
   const updateCpmk = (index: number, field: keyof CPMKForm, value: string | string[]) => {
@@ -1558,13 +1004,6 @@ export default function EditRPSPage() {
   }
 
   const removeSubCpmk = (cpmkIdx: number, subIdx: number) => {
-    const subCpmk = subCpmkList[cpmkIdx]?.[subIdx]
-    
-    // If Sub-CPMK has an ID, mark for deletion
-    if (subCpmk?.id) {
-      setDeletedSubCpmkIds(prev => [...prev, subCpmk.id!])
-    }
-    
     const updated = [...subCpmkList]
     updated[cpmkIdx] = updated[cpmkIdx].filter((_, i) => i !== subIdx)
     setSubCpmkList(updated)
@@ -1624,14 +1063,14 @@ export default function EditRPSPage() {
       judul: '',
       sub_cpmk_ids: [],
       indikator_keberhasilan: '',
-      batas_waktu_minggu: 2, // Default minggu ke-2
+      batas_waktu_minggu: 0,
       batas_waktu_tanggal: '',
       petunjuk_pengerjaan: '',
       jenis_tugas: 'Individu',
       luaran_tugas: '',
       kriteria_penilaian: '',
       teknik_penilaian: '',
-      bobot: 10 // Default 10%
+      bobot: 0
     }])
   }
 
@@ -1660,11 +1099,6 @@ export default function EditRPSPage() {
   }
 
   const removeAnalisisKetercapaian = (index: number) => {
-    const itemToRemove = analisisKetercapaian[index]
-    // Jika item memiliki ID (sudah disimpan di backend), track untuk delete
-    if (itemToRemove.id) {
-      setDeletedAnalisisIds(prev => [...prev, itemToRemove.id!])
-    }
     setAnalisisKetercapaian(analisisKetercapaian.filter((_, i) => i !== index))
   }
 
@@ -1687,11 +1121,6 @@ export default function EditRPSPage() {
 
   const removeSkalaPenilaian = (index: number) => {
     if (skalaPenilaian.length > 1) {
-      const itemToRemove = skalaPenilaian[index]
-      // Jika item memiliki ID (sudah disimpan di backend), track untuk delete
-      if (itemToRemove.id) {
-        setDeletedSkalaIds(prev => [...prev, itemToRemove.id!])
-      }
       setSkalaPenilaian(skalaPenilaian.filter((_, i) => i !== index))
     }
   }
@@ -1725,25 +1154,17 @@ export default function EditRPSPage() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">Edit RPS</h1>
+              <h1 className="text-2xl font-bold text-slate-900">Buat RPS Baru</h1>
               <p className="text-slate-600">
-                {rpsData?.mata_kuliah_nama ? `${rpsData.mata_kuliah_nama} - ${rpsData.tahun_ajaran}` : `RPS ID: ${editRpsId}`}
+                {rpsId ? `RPS ID: ${rpsId}` : 'Isi form langkah demi langkah'}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-4">
             {/* RPS Status Badge */}
-            {rpsData?.status && (
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                rpsData.status === 'draft' ? 'bg-yellow-100 text-yellow-700' :
-                rpsData.status === 'submitted' ? 'bg-blue-100 text-blue-700' :
-                rpsData.status === 'approved' ? 'bg-green-100 text-green-700' :
-                'bg-slate-100 text-slate-700'
-              }`}>
-                {rpsData.status === 'draft' ? 'Draft' :
-                 rpsData.status === 'submitted' ? 'Menunggu Review' :
-                 rpsData.status === 'approved' ? 'Disetujui' :
-                 rpsData.status}
+            {rpsId && (
+              <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
+                Draft Tersimpan
               </span>
             )}
             {/* Completed steps count */}
@@ -2654,7 +2075,7 @@ export default function EditRPSPage() {
                       <FileText className="h-5 w-5 text-amber-600" />
                       Rencana Tugas
                     </CardTitle>
-                    <CardDescription>Definisikan tugas dan penilaian mahasiswa</CardDescription>
+                    <CardDescription>Definisikan tugas dan penilaian</CardDescription>
                   </div>
                   <Button onClick={addRencanaTugas}>
                     <Plus className="h-4 w-4 mr-2" />
@@ -2664,34 +2085,28 @@ export default function EditRPSPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {rencanaTugas.length === 0 && (
-                  <div className="text-center py-8 text-slate-500">
-                    <FileText className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                    <p>Belum ada rencana tugas</p>
-                    <p className="text-sm">Klik &quot;Tambah Tugas&quot; untuk menambahkan</p>
-                  </div>
+                  <p className="text-sm text-slate-500">Belum ada rencana tugas</p>
                 )}
                 {rencanaTugas.map((tugas, index) => (
-                  <Card key={index} className="border-l-4 border-l-amber-500">
+                  <Card key={index} className="bg-slate-50">
                     <CardContent className="p-4 space-y-4">
                       <div className="flex items-center justify-between">
-                        <Badge variant="outline" className="bg-amber-50">Tugas {tugas.nomor_tugas}</Badge>
+                        <Badge variant="outline">Tugas {tugas.nomor_tugas}</Badge>
                         <Button variant="ghost" size="sm" onClick={() => removeRencanaTugas(index)}>
                           <Trash2 className="h-4 w-4 text-red-500" />
                         </Button>
                       </div>
-                      
-                      {/* Row 1: Judul dan Jenis Tugas */}
                       <div className="grid gap-4 md:grid-cols-2">
                         <div className="space-y-2">
-                          <Label>Judul Tugas <span className="text-red-500">*</span></Label>
+                          <Label>Judul Tugas *</Label>
                           <Input
                             value={tugas.judul}
                             onChange={(e) => updateRencanaTugas(index, 'judul', e.target.value)}
-                            placeholder="Contoh: Tugas 1: Membuat Program Hello World"
+                            placeholder="Judul tugas..."
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>Jenis Tugas <span className="text-red-500">*</span></Label>
+                          <Label>Jenis Tugas</Label>
                           <Select
                             value={tugas.jenis_tugas}
                             onValueChange={(val: 'Individu' | 'Kelompok') => updateRencanaTugas(index, 'jenis_tugas', val)}
@@ -2706,132 +2121,38 @@ export default function EditRPSPage() {
                           </Select>
                         </div>
                       </div>
-                      
-                      {/* Row 2: Indikator Keberhasilan */}
                       <div className="space-y-2">
                         <Label>Indikator Keberhasilan</Label>
                         <Textarea
                           value={tugas.indikator_keberhasilan}
                           onChange={(e) => updateRencanaTugas(index, 'indikator_keberhasilan', e.target.value)}
-                          placeholder="Contoh: Mahasiswa mampu membuat program sederhana dengan Python"
+                          placeholder="Indikator keberhasilan..."
                           rows={2}
                         />
                       </div>
-                      
-                      {/* Row 3: Petunjuk Pengerjaan */}
-                      <div className="space-y-2">
-                        <Label>Petunjuk Pengerjaan</Label>
-                        <Textarea
-                          value={tugas.petunjuk_pengerjaan}
-                          onChange={(e) => updateRencanaTugas(index, 'petunjuk_pengerjaan', e.target.value)}
-                          placeholder="Contoh: Buat file hello.py dan upload ke LMS sebelum batas waktu"
-                          rows={2}
-                        />
-                      </div>
-                      
-                      {/* Row 4: Luaran Tugas */}
-                      <div className="space-y-2">
-                        <Label>Luaran Tugas</Label>
-                        <Input
-                          value={tugas.luaran_tugas}
-                          onChange={(e) => updateRencanaTugas(index, 'luaran_tugas', e.target.value)}
-                          placeholder="Contoh: File Python (.py), Laporan PDF"
-                        />
-                      </div>
-                      
-                      {/* Row 5: Kriteria & Teknik Penilaian */}
-                      <div className="grid gap-4 md:grid-cols-2">
+                      <div className="grid gap-4 md:grid-cols-3">
                         <div className="space-y-2">
-                          <Label>Kriteria Penilaian</Label>
-                          <Textarea
-                            value={tugas.kriteria_penilaian}
-                            onChange={(e) => updateRencanaTugas(index, 'kriteria_penilaian', e.target.value)}
-                            placeholder="Contoh: Ketepatan output (40%), Kerapihan kode (30%), Dokumentasi (30%)"
-                            rows={2}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Teknik Penilaian</Label>
-                          <Select
-                            value={tugas.teknik_penilaian || ""}
-                            onValueChange={(val) => updateRencanaTugas(index, 'teknik_penilaian', val)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Pilih teknik penilaian" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Rubrik">Rubrik</SelectItem>
-                              <SelectItem value="Checklist">Checklist</SelectItem>
-                              <SelectItem value="Portofolio">Portofolio</SelectItem>
-                              <SelectItem value="Observasi">Observasi</SelectItem>
-                              <SelectItem value="Tes Tertulis">Tes Tertulis</SelectItem>
-                              <SelectItem value="Presentasi">Presentasi</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      
-                      {/* Row 6: Batas Waktu dan Bobot */}
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label>Batas Waktu (Minggu ke-) <span className="text-red-500">*</span></Label>
+                          <Label>Batas Waktu (Minggu)</Label>
                           <Input
                             type="number"
-                            min="1"
-                            max="16"
                             value={tugas.batas_waktu_minggu}
-                            onChange={(e) => updateRencanaTugas(index, 'batas_waktu_minggu', parseInt(e.target.value) || 1)}
-                            placeholder="1-16"
-                            className={(tugas.batas_waktu_minggu <= 0 || tugas.batas_waktu_minggu > 16) ? "border-red-300" : ""}
+                            onChange={(e) => updateRencanaTugas(index, 'batas_waktu_minggu', parseInt(e.target.value) || 0)}
                           />
-                          {(tugas.batas_waktu_minggu <= 0 || tugas.batas_waktu_minggu > 16) && (
-                            <p className="text-xs text-red-500">Batas waktu harus antara 1-16</p>
-                          )}
                         </div>
                         <div className="space-y-2">
-                          <Label>Bobot (%) <span className="text-red-500">*</span></Label>
+                          <Label>Bobot (%)</Label>
                           <Input
                             type="number"
-                            min="1"
+                            min="0"
                             max="100"
                             value={tugas.bobot}
                             onChange={(e) => updateRencanaTugas(index, 'bobot', parseInt(e.target.value) || 0)}
-                            placeholder="10"
-                            className={tugas.bobot <= 0 ? "border-red-300" : ""}
                           />
-                          {tugas.bobot <= 0 && (
-                            <p className="text-xs text-red-500">Bobot harus lebih dari 0</p>
-                          )}
                         </div>
                       </div>
-                      
-                      {/* Validation Summary */}
-                      {tugas.judul?.trim() && (tugas.bobot <= 0 || tugas.batas_waktu_minggu <= 0 || tugas.batas_waktu_minggu > 16) && (
-                        <div className="bg-red-50 border border-red-200 rounded-md p-3">
-                          <p className="text-sm text-red-700 font-medium flex items-center gap-2">
-                            <AlertCircle className="h-4 w-4" />
-                            Tugas ini tidak akan disimpan karena data belum lengkap
-                          </p>
-                        </div>
-                      )}
                     </CardContent>
                   </Card>
                 ))}
-                
-                {/* Total Bobot Tugas */}
-                {rencanaTugas.length > 0 && (
-                  <div className="flex justify-between items-center">
-                    <div className="text-sm text-slate-500">
-                      {rencanaTugas.filter(t => t.judul?.trim() && t.bobot > 0 && t.batas_waktu_minggu > 0).length} dari {rencanaTugas.length} tugas valid
-                    </div>
-                    <div className="bg-slate-100 px-4 py-2 rounded-lg">
-                      <span className="text-sm text-slate-600">Total Bobot: </span>
-                      <span className={`font-bold ${rencanaTugas.reduce((sum, t) => sum + (t.bobot || 0), 0) > 100 ? 'text-red-600' : 'text-slate-900'}`}>
-                        {rencanaTugas.reduce((sum, t) => sum + (t.bobot || 0), 0)}%
-                      </span>
-                    </div>
-                  </div>
-                )}
               </CardContent>
             </Card>
           </TabsContent>

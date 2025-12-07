@@ -1,155 +1,34 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DashboardLayout } from '@/components/layout'
+import Link from 'next/link'
 
 import { 
   Search, 
-  Plus, 
-  Edit, 
   Eye,
   BookOpen,
   Users,
   Clock,
   Calendar,
   FileText,
-  Star,
-  Filter,
-  Download,
-  Upload,
-  GraduationCap,
-  Award,
-  Target
+  Loader2,
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react'
+import { mataKuliahService, type MataKuliah } from '@/lib/api/mata-kuliah'
+import { rpsService, type RPS } from '@/lib/api/rps'
+import { authService } from '@/lib/api/auth'
 
-interface MataKuliah {
-  id: string
-  kode: string
-  nama: string
-  sks: number
-  semester: number
-  jenis: 'wajib' | 'pilihan'
-  deskripsi: string
-  prasyarat: string[]
-  dosen: string[]
-  status: 'aktif' | 'nonaktif' | 'revisi'
-  rpsStatus: 'approved' | 'pending' | 'draft' | 'none'
-  jumlahMahasiswa: number
-  evaluasi: {
-    rating: number
-    feedback: number
-  }
-}
-
-const mockMataKuliah: MataKuliah[] = [
-  {
-    id: '1',
-    kode: 'TIF101',
-    nama: 'Algoritma dan Pemrograman',
-    sks: 3,
-    semester: 1,
-    jenis: 'wajib',
-    deskripsi: 'Mata kuliah yang membahas dasar-dasar algoritma dan pemrograman komputer',
-    prasyarat: [],
-    dosen: ['Dr. Ahmad Wijaya', 'Budi Santoso, M.Kom'],
-    status: 'aktif',
-    rpsStatus: 'approved',
-    jumlahMahasiswa: 45,
-    evaluasi: {
-      rating: 4.5,
-      feedback: 38
-    }
-  },
-  {
-    id: '2',
-    kode: 'TIF201',
-    nama: 'Struktur Data',
-    sks: 3,
-    semester: 2,
-    jenis: 'wajib',
-    deskripsi: 'Mata kuliah yang membahas berbagai struktur data dan implementasinya',
-    prasyarat: ['TIF101'],
-    dosen: ['Sari Dewi, M.T.', 'Agus Prakoso, Ph.D'],
-    status: 'aktif',
-    rpsStatus: 'pending',
-    jumlahMahasiswa: 42,
-    evaluasi: {
-      rating: 4.2,
-      feedback: 35
-    }
-  },
-  {
-    id: '3',
-    kode: 'TIF301',
-    nama: 'Basis Data',
-    sks: 3,
-    semester: 3,
-    jenis: 'wajib',
-    deskripsi: 'Mata kuliah yang membahas konsep dan implementasi sistem basis data',
-    prasyarat: ['TIF201'],
-    dosen: ['Prof. Dr. Indira Sari'],
-    status: 'aktif',
-    rpsStatus: 'draft',
-    jumlahMahasiswa: 38,
-    evaluasi: {
-      rating: 4.7,
-      feedback: 32
-    }
-  },
-  {
-    id: '4',
-    kode: 'TIF401',
-    nama: 'Rekayasa Perangkat Lunak',
-    sks: 4,
-    semester: 4,
-    jenis: 'wajib',
-    deskripsi: 'Mata kuliah yang membahas metodologi pengembangan perangkat lunak',
-    prasyarat: ['TIF301'],
-    dosen: ['Dr. Rini Kusuma', 'Andi Setiawan, M.Kom'],
-    status: 'aktif',
-    rpsStatus: 'approved',
-    jumlahMahasiswa: 40,
-    evaluasi: {
-      rating: 4.3,
-      feedback: 36
-    }
-  },
-  {
-    id: '5',
-    kode: 'TIF501',
-    nama: 'Kecerdasan Buatan',
-    sks: 3,
-    semester: 5,
-    jenis: 'pilihan',
-    deskripsi: 'Mata kuliah yang membahas konsep dan aplikasi kecerdasan buatan',
-    prasyarat: ['TIF301', 'TIF201'],
-    dosen: ['Dr. Budi Hartono'],
-    status: 'aktif',
-    rpsStatus: 'none',
-    jumlahMahasiswa: 25,
-    evaluasi: {
-      rating: 4.8,
-      feedback: 22
-    }
-  }
-]
-
-const statusColors = {
-  aktif: 'bg-green-100 text-green-800 border-green-200',
-  nonaktif: 'bg-gray-100 text-gray-800 border-gray-200',
-  revisi: 'bg-yellow-100 text-yellow-800 border-yellow-200'
-}
-
-const rpsStatusColors = {
-  approved: 'bg-green-100 text-green-800',
-  pending: 'bg-yellow-100 text-yellow-800',
-  draft: 'bg-blue-100 text-blue-800',
-  none: 'bg-gray-100 text-gray-800'
+// Extended type for display
+interface DisplayMataKuliah extends MataKuliah {
+  rpsStatus?: 'approved' | 'submitted' | 'draft' | 'rejected' | 'published' | 'revision' | 'none'
+  rpsId?: string
 }
 
 const jenisColors = {
@@ -157,27 +36,120 @@ const jenisColors = {
   pilihan: 'bg-blue-100 text-blue-800'
 }
 
+const rpsStatusConfig = {
+  approved: { label: 'RPS Disetujui', color: 'bg-green-100 text-green-800' },
+  submitted: { label: 'RPS Pending', color: 'bg-yellow-100 text-yellow-800' },
+  draft: { label: 'RPS Draft', color: 'bg-blue-100 text-blue-800' },
+  rejected: { label: 'RPS Ditolak', color: 'bg-red-100 text-red-800' },
+  published: { label: 'RPS Published', color: 'bg-emerald-100 text-emerald-800' },
+  revision: { label: 'Perlu Revisi', color: 'bg-orange-100 text-orange-800' },
+  none: { label: 'Belum Ada RPS', color: 'bg-gray-100 text-gray-800' }
+}
+
 export default function DosenMataKuliahPage() {
+  const router = useRouter()
+  const [mataKuliahList, setMataKuliahList] = useState<DisplayMataKuliah[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSemester, setSelectedSemester] = useState<string>('all')
   const [selectedJenis, setSelectedJenis] = useState<string>('all')
-  const [selectedStatus, setSelectedStatus] = useState<string>('all')
 
-  const filteredMataKuliah = mockMataKuliah.filter(mk => {
+  const fetchData = useCallback(async () => {
+    if (!authService.isAuthenticated()) {
+      router.push('/login')
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError(null)
+      
+      // Fetch mata kuliah and RPS in parallel
+      const [mkResponse, rpsResponse] = await Promise.all([
+        mataKuliahService.getMy(),
+        rpsService.getMy()
+      ])
+
+      // Handle various response formats for mata kuliah
+      let mkData: MataKuliah[] = []
+      if (mkResponse.data) {
+        if (Array.isArray(mkResponse.data)) {
+          mkData = mkResponse.data
+        } else if (mkResponse.data.data && Array.isArray(mkResponse.data.data)) {
+          mkData = mkResponse.data.data
+        }
+      }
+
+      // Handle various response formats for RPS
+      let rpsData: RPS[] = []
+      if (rpsResponse.data) {
+        if (Array.isArray(rpsResponse.data)) {
+          rpsData = rpsResponse.data
+        } else if (rpsResponse.data.data && Array.isArray(rpsResponse.data.data)) {
+          rpsData = rpsResponse.data.data
+        }
+      }
+
+      // Map RPS status to mata kuliah
+      const mkWithRps: DisplayMataKuliah[] = mkData.map(mk => {
+        const relatedRps = rpsData.find(rps => rps.mata_kuliah_id === mk.id)
+        return {
+          ...mk,
+          rpsStatus: relatedRps?.status || 'none',
+          rpsId: relatedRps?.id
+        }
+      })
+
+      setMataKuliahList(mkWithRps)
+    } catch (err) {
+      console.error('Error fetching data:', err)
+      setError(err instanceof Error ? err.message : 'Gagal memuat data mata kuliah')
+    } finally {
+      setLoading(false)
+    }
+  }, [router])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  const filteredMataKuliah = mataKuliahList.filter(mk => {
     const matchesSearch = mk.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          mk.kode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         mk.deskripsi.toLowerCase().includes(searchQuery.toLowerCase())
+                         (mk.deskripsi?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
     
     const matchesSemester = selectedSemester === 'all' || mk.semester.toString() === selectedSemester
     const matchesJenis = selectedJenis === 'all' || mk.jenis === selectedJenis
-    const matchesStatus = selectedStatus === 'all' || mk.status === selectedStatus
     
-    return matchesSearch && matchesSemester && matchesJenis && matchesStatus
+    return matchesSearch && matchesSemester && matchesJenis
   })
 
   const totalSKS = filteredMataKuliah.reduce((sum, mk) => sum + mk.sks, 0)
-  const avgRating = filteredMataKuliah.reduce((sum, mk) => sum + mk.evaluasi.rating, 0) / filteredMataKuliah.length || 0
-  const totalMahasiswa = filteredMataKuliah.reduce((sum, mk) => sum + mk.jumlahMahasiswa, 0)
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-[60vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <span className="ml-2 text-slate-600">Memuat mata kuliah...</span>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
+          <AlertCircle className="h-12 w-12 text-red-500" />
+          <p className="text-lg font-medium text-slate-900">Gagal Memuat Data</p>
+          <p className="text-slate-600">{error}</p>
+          <Button onClick={fetchData}>Coba Lagi</Button>
+        </div>
+      </DashboardLayout>
+    )
+  }
 
   return (
     <DashboardLayout>
@@ -188,6 +160,10 @@ export default function DosenMataKuliahPage() {
             <h1 className="text-2xl font-bold text-slate-900">Mata Kuliah Saya</h1>
             <p className="text-slate-600">Daftar mata kuliah yang diampu</p>
           </div>
+          <Button variant="outline" onClick={fetchData} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
         </div>
 
         {/* Stats Cards */}
@@ -221,12 +197,14 @@ export default function DosenMataKuliahPage() {
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-yellow-100">
-                  <Star className="h-5 w-5 text-yellow-600" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100">
+                  <FileText className="h-5 w-5 text-emerald-600" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-slate-900">{avgRating.toFixed(1)}</p>
-                  <p className="text-sm text-slate-600">Rata-rata Rating</p>
+                  <p className="text-2xl font-bold text-slate-900">
+                    {filteredMataKuliah.filter(mk => mk.rpsStatus === 'approved').length}
+                  </p>
+                  <p className="text-sm text-slate-600">RPS Disetujui</p>
                 </div>
               </div>
             </CardContent>
@@ -234,12 +212,14 @@ export default function DosenMataKuliahPage() {
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100">
-                  <Users className="h-5 w-5 text-purple-600" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-yellow-100">
+                  <AlertCircle className="h-5 w-5 text-yellow-600" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-slate-900">{totalMahasiswa}</p>
-                  <p className="text-sm text-slate-600">Total Mahasiswa</p>
+                  <p className="text-2xl font-bold text-slate-900">
+                    {filteredMataKuliah.filter(mk => mk.rpsStatus === 'none' || mk.rpsStatus === 'draft').length}
+                  </p>
+                  <p className="text-sm text-slate-600">Perlu RPS</p>
                 </div>
               </div>
             </CardContent>
@@ -285,61 +265,81 @@ export default function DosenMataKuliahPage() {
         </Card>
 
         {/* Mata Kuliah List */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredMataKuliah.map((mk) => (
-            <Card key={mk.id} className="hover:shadow-md transition-shadow">
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <Badge className={jenisColors[mk.jenis]} variant="outline">
-                      {mk.jenis === 'wajib' ? 'Wajib' : 'Pilihan'}
+        {filteredMataKuliah.length > 0 ? (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {filteredMataKuliah.map((mk) => (
+              <Card key={mk.id} className="hover:shadow-md transition-shadow">
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <Badge className={jenisColors[mk.jenis]} variant="outline">
+                        {mk.jenis === 'wajib' ? 'Wajib' : 'Pilihan'}
+                      </Badge>
+                      <p className="mt-2 font-mono text-sm text-slate-500">{mk.kode}</p>
+                    </div>
+                    <Badge className={rpsStatusConfig[mk.rpsStatus || 'none'].color}>
+                      {rpsStatusConfig[mk.rpsStatus || 'none'].label}
                     </Badge>
-                    <p className="mt-2 font-mono text-sm text-slate-500">{mk.kode}</p>
                   </div>
-                  <Badge className={rpsStatusColors[mk.rpsStatus]}>
-                    {mk.rpsStatus === 'approved' ? 'RPS Approved' : 
-                     mk.rpsStatus === 'pending' ? 'RPS Pending' :
-                     mk.rpsStatus === 'draft' ? 'RPS Draft' : 'No RPS'}
-                  </Badge>
-                </div>
-                <CardTitle className="text-lg">{mk.nama}</CardTitle>
-                <CardDescription className="line-clamp-2">{mk.deskripsi}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between text-sm text-slate-600">
-                  <div className="flex items-center gap-1">
-                    <Clock className="h-4 w-4" />
-                    <span>{mk.sks} SKS</span>
+                  <CardTitle className="text-lg">{mk.nama}</CardTitle>
+                  <CardDescription className="line-clamp-2">
+                    {mk.deskripsi || 'Tidak ada deskripsi'}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between text-sm text-slate-600">
+                    <div className="flex items-center gap-1">
+                      <Clock className="h-4 w-4" />
+                      <span>{mk.sks} SKS</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Calendar className="h-4 w-4" />
+                      <span>Semester {mk.semester}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Calendar className="h-4 w-4" />
-                    <span>Semester {mk.semester}</span>
+                  {mk.dosen_pengampu && (
+                    <div className="mt-2 text-sm text-slate-600 flex items-center gap-1">
+                      <Users className="h-4 w-4" />
+                      <span>{mk.dosen_pengampu.nama}</span>
+                    </div>
+                  )}
+                  <div className="mt-4 flex gap-2">
+                    <Button variant="outline" size="sm" className="flex-1" asChild>
+                      <Link href={`/dosen/mata-kuliah/${mk.id}`}>
+                        <Eye className="h-4 w-4 mr-1" />
+                        Detail
+                      </Link>
+                    </Button>
+                    {mk.rpsId ? (
+                      <Button variant="outline" size="sm" className="flex-1" asChild>
+                        <Link href={`/dosen/rps/${mk.rpsId}`}>
+                          <FileText className="h-4 w-4 mr-1" />
+                          Lihat RPS
+                        </Link>
+                      </Button>
+                    ) : (
+                      <Button variant="default" size="sm" className="flex-1" asChild>
+                        <Link href={`/dosen/rps/create?mata_kuliah_id=${mk.id}`}>
+                          <FileText className="h-4 w-4 mr-1" />
+                          Buat RPS
+                        </Link>
+                      </Button>
+                    )}
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Users className="h-4 w-4" />
-                    <span>{mk.jumlahMahasiswa}</span>
-                  </div>
-                </div>
-                <div className="mt-4 flex gap-2">
-                  <Button variant="outline" size="sm" className="flex-1">
-                    <Eye className="h-4 w-4 mr-1" />
-                    Detail
-                  </Button>
-                  <Button variant="outline" size="sm" className="flex-1">
-                    <FileText className="h-4 w-4 mr-1" />
-                    RPS
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {filteredMataKuliah.length === 0 && (
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
           <Card>
             <CardContent className="p-8 text-center">
               <BookOpen className="mx-auto h-12 w-12 text-slate-300" />
-              <p className="mt-4 text-slate-600">Tidak ada mata kuliah yang ditemukan</p>
+              <p className="mt-4 text-lg font-medium text-slate-900">Tidak ada mata kuliah</p>
+              <p className="text-slate-600">
+                {searchQuery || selectedSemester !== 'all' || selectedJenis !== 'all'
+                  ? 'Tidak ada mata kuliah yang cocok dengan filter'
+                  : 'Anda belum ditugaskan ke mata kuliah manapun'}
+              </p>
             </CardContent>
           </Card>
         )}

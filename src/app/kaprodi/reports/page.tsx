@@ -1,20 +1,17 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { DashboardLayout } from '@/components/layout'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { 
   BarChart3,
   PieChart,
   TrendingUp,
-  TrendingDown,
   Download,
-  Calendar,
   FileText,
   Users,
   BookOpen,
@@ -23,13 +20,22 @@ import {
   CheckCircle,
   AlertTriangle,
   Target,
-  Filter,
   RefreshCw,
-  Eye,
-  Share,
-  Printer
+  Loader2,
+  AlertCircle
 } from 'lucide-react'
-
+import { 
+  dashboardService, 
+  cplService, 
+  rpsService, 
+  mataKuliahService, 
+  authService,
+  KaprodiDashboard,
+  CPLStatistics,
+  CPL,
+  MataKuliah,
+  RPS
+} from '@/lib/api'
 
 interface ReportData {
   rpsSubmissions: {
@@ -37,99 +43,179 @@ interface ReportData {
     approved: number
     pending: number
     rejected: number
-    byMonth: { month: string; count: number }[]
   }
   cplMapping: {
     totalCPL: number
-    mappedCPL: number
+    publishedCPL: number
+    draftCPL: number
     percentage: number
-    byCourse: { course: string; mapped: number; total: number }[]
   }
   dosenActivity: {
     totalDosen: number
-    activeDosen: number
-    submissions: number
-    avgResponseTime: string
+    activeAssignments: number
+    completedAssignments: number
+    pendingAssignments: number
   }
   courseDistribution: {
     totalCourses: number
     withRPS: number
     withoutRPS: number
-    byCategory: { category: string; count: number; color: string }[]
-  }
-}
-
-const mockReportData: ReportData = {
-  rpsSubmissions: {
-    total: 45,
-    approved: 32,
-    pending: 8,
-    rejected: 5,
-    byMonth: [
-      { month: 'Jan', count: 12 },
-      { month: 'Feb', count: 8 },
-      { month: 'Mar', count: 15 },
-      { month: 'Apr', count: 10 }
-    ]
-  },
-  cplMapping: {
-    totalCPL: 12,
-    mappedCPL: 9,
-    percentage: 75,
-    byCourse: [
-      { course: 'Algoritma dan Pemrograman', mapped: 8, total: 10 },
-      { course: 'Basis Data', mapped: 6, total: 8 },
-      { course: 'Jaringan Komputer', mapped: 7, total: 9 },
-      { course: 'Web Programming', mapped: 5, total: 7 }
-    ]
-  },
-  dosenActivity: {
-    totalDosen: 15,
-    activeDosen: 12,
-    submissions: 28,
-    avgResponseTime: '2.5 hari'
-  },
-  courseDistribution: {
-    totalCourses: 24,
-    withRPS: 18,
-    withoutRPS: 6,
-    byCategory: [
-      { category: 'Wajib', count: 15, color: 'bg-blue-500' },
-      { category: 'Pilihan', count: 7, color: 'bg-green-500' },
-      { category: 'Praktek', count: 2, color: 'bg-yellow-500' }
-    ]
   }
 }
 
 export default function ReportsPage() {
-  const [reportData] = useState<ReportData>(mockReportData)
-  const [selectedPeriod, setSelectedPeriod] = useState('semester-current')
-  const [reportType, setReportType] = useState<'overview' | 'rps' | 'cpl' | 'dosen' | 'courses'>('overview')
-  const [isGenerating, setIsGenerating] = useState(false)
+  const router = useRouter()
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [reportData, setReportData] = useState<ReportData | null>(null)
+  const [cplList, setCplList] = useState<CPL[]>([])
+  const [mataKuliahList, setMataKuliahList] = useState<MataKuliah[]>([])
+  const [rpsList, setRpsList] = useState<RPS[]>([])
 
-  const generateReport = async () => {
-    setIsGenerating(true)
-    try {
-      // Simulate report generation
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      alert('Laporan berhasil diunduh!')
-    } catch (error) {
-      console.error('Error generating report:', error)
-      alert('Gagal membuat laporan!')
-    } finally {
-      setIsGenerating(false)
+  const fetchData = useCallback(async () => {
+    if (!authService.isAuthenticated()) {
+      router.push('/login')
+      return
     }
+
+    setLoading(true)
+    setError(null)
+    
+    try {
+      const [dashboardRes, cplRes, mkRes, rpsRes] = await Promise.all([
+        dashboardService.getKaprodi(),
+        cplService.getAll({ limit: 100 }),
+        mataKuliahService.getAll({ limit: 100 }),
+        rpsService.getAll({ limit: 100 })
+      ])
+
+      // Parse dashboard data
+      const dashboard = dashboardRes.data as KaprodiDashboard
+      
+      // Parse CPL data
+      let cplData: CPL[] = []
+      if (Array.isArray(cplRes.data)) {
+        cplData = cplRes.data
+      } else if (cplRes.data?.data && Array.isArray(cplRes.data.data)) {
+        cplData = cplRes.data.data
+      }
+      setCplList(cplData)
+
+      // Parse MK data
+      let mkData: MataKuliah[] = []
+      if (Array.isArray(mkRes.data)) {
+        mkData = mkRes.data
+      } else if (mkRes.data?.data && Array.isArray(mkRes.data.data)) {
+        mkData = mkRes.data.data
+      }
+      setMataKuliahList(mkData)
+
+      // Parse RPS data
+      let rpsData: RPS[] = []
+      if (Array.isArray(rpsRes.data)) {
+        rpsData = rpsRes.data
+      } else if (rpsRes.data?.data && Array.isArray(rpsRes.data.data)) {
+        rpsData = rpsRes.data.data
+      }
+      setRpsList(rpsData)
+
+      // Calculate report data
+      const coursesWithRPS = new Set(rpsData.map(rps => rps.mata_kuliah_id)).size
+      
+      setReportData({
+        rpsSubmissions: {
+          total: dashboard?.total_rps || rpsData.length,
+          approved: dashboard?.approved_rps || rpsData.filter(r => r.status === 'approved').length,
+          pending: dashboard?.pending_review || rpsData.filter(r => r.status === 'submitted').length,
+          rejected: dashboard?.rejected_rps || rpsData.filter(r => r.status === 'rejected' || r.status === 'revision').length
+        },
+        cplMapping: {
+          totalCPL: dashboard?.total_cpl || cplData.length,
+          publishedCPL: dashboard?.published_cpl || cplData.filter(c => c.status === 'published').length,
+          draftCPL: dashboard?.draft_cpl || cplData.filter(c => c.status === 'draft').length,
+          percentage: dashboard?.total_cpl ? Math.round((dashboard?.published_cpl || 0) / dashboard.total_cpl * 100) : 0
+        },
+        dosenActivity: {
+          totalDosen: dashboard?.active_dosen || 0,
+          activeAssignments: dashboard?.active_assignments || 0,
+          completedAssignments: dashboard?.completed_assignments || 0,
+          pendingAssignments: dashboard?.pending_assignments || 0
+        },
+        courseDistribution: {
+          totalCourses: mkData.length,
+          withRPS: coursesWithRPS,
+          withoutRPS: mkData.length - coursesWithRPS
+        }
+      })
+
+    } catch (err) {
+      console.error('Error fetching report data:', err)
+      setError('Gagal memuat data laporan. Pastikan server API berjalan.')
+    } finally {
+      setLoading(false)
+    }
+  }, [router])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  const exportReport = () => {
+    if (!reportData) return
+    
+    const reportContent = `
+LAPORAN KURIKULUM
+=================
+Tanggal: ${new Date().toLocaleDateString('id-ID')}
+
+1. RINGKASAN RPS
+----------------
+Total RPS: ${reportData.rpsSubmissions.total}
+Disetujui: ${reportData.rpsSubmissions.approved}
+Menunggu Review: ${reportData.rpsSubmissions.pending}
+Ditolak/Revisi: ${reportData.rpsSubmissions.rejected}
+
+2. CAPAIAN PEMBELAJARAN LULUSAN (CPL)
+-------------------------------------
+Total CPL: ${reportData.cplMapping.totalCPL}
+CPL Aktif: ${reportData.cplMapping.publishedCPL}
+CPL Draft: ${reportData.cplMapping.draftCPL}
+Persentase Kelengkapan: ${reportData.cplMapping.percentage}%
+
+3. AKTIVITAS DOSEN
+------------------
+Total Dosen Aktif: ${reportData.dosenActivity.totalDosen}
+Penugasan Aktif: ${reportData.dosenActivity.activeAssignments}
+Penugasan Selesai: ${reportData.dosenActivity.completedAssignments}
+Menunggu: ${reportData.dosenActivity.pendingAssignments}
+
+4. DISTRIBUSI MATA KULIAH
+-------------------------
+Total Mata Kuliah: ${reportData.courseDistribution.totalCourses}
+Dengan RPS: ${reportData.courseDistribution.withRPS}
+Tanpa RPS: ${reportData.courseDistribution.withoutRPS}
+    `.trim()
+
+    const blob = new Blob([reportContent], { type: 'text/plain' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `laporan-kurikulum-${new Date().toISOString().split('T')[0]}.txt`
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
   }
 
-  const exportReport = async (format: 'pdf' | 'excel' | 'csv') => {
-    try {
-      // Simulate export
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      alert(`Laporan berhasil diexport ke ${format.toUpperCase()}!`)
-    } catch (error) {
-      console.error('Error exporting report:', error)
-      alert('Gagal export laporan!')
-    }
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="ml-2">Memuat data laporan...</span>
+        </div>
+      </DashboardLayout>
+    )
   }
 
   return (
@@ -138,439 +224,345 @@ export default function ReportsPage() {
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900">Laporan & Analisis</h1>
+            <h1 className="text-3xl font-bold text-slate-900">Laporan & Statistik</h1>
             <p className="text-slate-600">
-              Dashboard analisis dan laporan aktivitas kurikulum
+              Ringkasan dan analisis data kurikulum
             </p>
           </div>
           
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => window.print()}>
-              <Printer className="h-4 w-4 mr-2" />
-              Print
+            <Button variant="outline" size="sm" onClick={fetchData}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
             </Button>
-            <Button variant="outline" size="sm">
-              <Share className="h-4 w-4 mr-2" />
-              Share
-            </Button>
-            <Button onClick={generateReport} disabled={isGenerating}>
+            <Button onClick={exportReport} disabled={!reportData}>
               <Download className="h-4 w-4 mr-2" />
-              {isGenerating ? 'Generating...' : 'Download Report'}
+              Export
             </Button>
           </div>
         </div>
 
-        {/* Filters */}
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center">
-              <div className="flex items-center gap-4">
-                <div>
-                  <Label htmlFor="period">Periode</Label>
-                  <select
-                    id="period"
-                    value={selectedPeriod}
-                    onChange={(e) => setSelectedPeriod(e.target.value)}
-                    className="mt-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="semester-current">Semester Ini</option>
-                    <option value="semester-last">Semester Lalu</option>
-                    <option value="year-current">Tahun Akademik Ini</option>
-                    <option value="year-last">Tahun Akademik Lalu</option>
-                    <option value="custom">Kustom</option>
-                  </select>
-                </div>
-                
-                <div>
-                  <Label htmlFor="report-type">Jenis Laporan</Label>
-                  <select
-                    id="report-type"
-                    value={reportType}
-                    onChange={(e) => setReportType(e.target.value as any)}
-                    className="mt-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="overview">Overview</option>
-                    <option value="rps">RPS Analysis</option>
-                    <option value="cpl">CPL Mapping</option>
-                    <option value="dosen">Aktivitas Dosen</option>
-                    <option value="courses">Distribusi Mata Kuliah</option>
-                  </select>
-                </div>
-              </div>
-              
-              <div className="flex gap-2 md:ml-auto">
-                <Button variant="outline" size="sm">
-                  <Filter className="h-4 w-4 mr-2" />
-                  Filter Lanjutan
-                </Button>
-                <Button variant="outline" size="sm">
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Refresh Data
-                </Button>
-              </div>
+        {error && (
+          <Card className="border-red-200 bg-red-50">
+            <CardContent className="p-4 flex items-center gap-2 text-red-700">
+              <AlertCircle className="h-5 w-5" />
+              {error}
+            </CardContent>
+          </Card>
+        )}
+
+        {reportData && (
+          <>
+            {/* Summary Cards */}
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-100 rounded-lg">
+                      <FileText className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-slate-900">{reportData.rpsSubmissions.total}</p>
+                      <p className="text-sm text-slate-600">Total RPS</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-green-100 rounded-lg">
+                      <Target className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-slate-900">{reportData.cplMapping.totalCPL}</p>
+                      <p className="text-sm text-slate-600">Total CPL</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-purple-100 rounded-lg">
+                      <Users className="h-5 w-5 text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-slate-900">{reportData.dosenActivity.totalDosen}</p>
+                      <p className="text-sm text-slate-600">Dosen Aktif</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-orange-100 rounded-lg">
+                      <BookOpen className="h-5 w-5 text-orange-600" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-slate-900">{reportData.courseDistribution.totalCourses}</p>
+                      <p className="text-sm text-slate-600">Mata Kuliah</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Overview Stats */}
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-          <Card className="border-l-4 border-l-blue-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-slate-600">Total RPS</p>
-                  <p className="text-3xl font-bold text-slate-900">{reportData.rpsSubmissions.total}</p>
-                  <div className="flex items-center gap-1 mt-2">
-                    <TrendingUp className="h-4 w-4 text-green-600" />
-                    <span className="text-sm text-green-600">+12% dari bulan lalu</span>
-                  </div>
-                </div>
-                <div className="p-3 bg-blue-100 rounded-full">
-                  <FileText className="h-6 w-6 text-blue-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-green-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-slate-600">RPS Disetujui</p>
-                  <p className="text-3xl font-bold text-slate-900">{reportData.rpsSubmissions.approved}</p>
-                  <div className="flex items-center gap-1 mt-2">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                    <span className="text-sm text-slate-600">
-                      {Math.round((reportData.rpsSubmissions.approved / reportData.rpsSubmissions.total) * 100)}% approval rate
-                    </span>
-                  </div>
-                </div>
-                <div className="p-3 bg-green-100 rounded-full">
-                  <CheckCircle className="h-6 w-6 text-green-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-yellow-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-slate-600">CPL Mapping</p>
-                  <p className="text-3xl font-bold text-slate-900">{reportData.cplMapping.percentage}%</p>
-                  <div className="flex items-center gap-1 mt-2">
-                    <Target className="h-4 w-4 text-yellow-600" />
-                    <span className="text-sm text-slate-600">
-                      {reportData.cplMapping.mappedCPL}/{reportData.cplMapping.totalCPL} CPL
-                    </span>
-                  </div>
-                </div>
-                <div className="p-3 bg-yellow-100 rounded-full">
-                  <Target className="h-6 w-6 text-yellow-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-purple-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-slate-600">Dosen Aktif</p>
-                  <p className="text-3xl font-bold text-slate-900">{reportData.dosenActivity.activeDosen}</p>
-                  <div className="flex items-center gap-1 mt-2">
-                    <Users className="h-4 w-4 text-purple-600" />
-                    <span className="text-sm text-slate-600">
-                      dari {reportData.dosenActivity.totalDosen} total dosen
-                    </span>
-                  </div>
-                </div>
-                <div className="p-3 bg-purple-100 rounded-full">
-                  <Users className="h-6 w-6 text-purple-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Charts and Analysis */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* RPS Submissions Chart */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 text-blue-600" />
-                Pengajuan RPS per Bulan
-              </CardTitle>
-              <CardDescription>
-                Tren pengajuan RPS dalam 4 bulan terakhir
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-6">
-              <div className="space-y-4">
-                {reportData.rpsSubmissions.byMonth.map((item, index) => (
-                  <div key={index} className="flex items-center gap-4">
-                    <span className="w-12 text-sm font-medium text-slate-600">
-                      {item.month}
-                    </span>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm text-slate-600">{item.count} submissions</span>
-                        <span className="text-sm font-medium">{Math.round((item.count / 15) * 100)}%</span>
+            {/* Detailed Reports */}
+            <div className="grid gap-6 md:grid-cols-2">
+              {/* RPS Status */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5 text-blue-600" />
+                    Status RPS
+                  </CardTitle>
+                  <CardDescription>Distribusi status dokumen RPS</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        <span className="text-sm">Disetujui</span>
                       </div>
-                      <Progress value={(item.count / 15) * 100} className="h-2" />
+                      <Badge className="bg-green-100 text-green-800">
+                        {reportData.rpsSubmissions.approved}
+                      </Badge>
+                    </div>
+                    <Progress 
+                      value={reportData.rpsSubmissions.total > 0 
+                        ? (reportData.rpsSubmissions.approved / reportData.rpsSubmissions.total * 100) 
+                        : 0} 
+                      className="h-2"
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-yellow-600" />
+                        <span className="text-sm">Menunggu Review</span>
+                      </div>
+                      <Badge className="bg-yellow-100 text-yellow-800">
+                        {reportData.rpsSubmissions.pending}
+                      </Badge>
+                    </div>
+                    <Progress 
+                      value={reportData.rpsSubmissions.total > 0 
+                        ? (reportData.rpsSubmissions.pending / reportData.rpsSubmissions.total * 100) 
+                        : 0} 
+                      className="h-2"
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-red-600" />
+                        <span className="text-sm">Ditolak/Revisi</span>
+                      </div>
+                      <Badge className="bg-red-100 text-red-800">
+                        {reportData.rpsSubmissions.rejected}
+                      </Badge>
+                    </div>
+                    <Progress 
+                      value={reportData.rpsSubmissions.total > 0 
+                        ? (reportData.rpsSubmissions.rejected / reportData.rpsSubmissions.total * 100) 
+                        : 0} 
+                      className="h-2"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* CPL Status */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <PieChart className="h-5 w-5 text-green-600" />
+                    Status CPL
+                  </CardTitle>
+                  <CardDescription>Kelengkapan Capaian Pembelajaran Lulusan</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-center">
+                    <div className="relative w-32 h-32">
+                      <svg className="w-32 h-32 transform -rotate-90" viewBox="0 0 100 100">
+                        <circle
+                          cx="50"
+                          cy="50"
+                          r="40"
+                          stroke="#e2e8f0"
+                          strokeWidth="12"
+                          fill="none"
+                        />
+                        <circle
+                          cx="50"
+                          cy="50"
+                          r="40"
+                          stroke="#22c55e"
+                          strokeWidth="12"
+                          fill="none"
+                          strokeDasharray={`${reportData.cplMapping.percentage * 2.51} 251`}
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-2xl font-bold">{reportData.cplMapping.percentage}%</span>
+                      </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* RPS Status Distribution */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <PieChart className="h-5 w-5 text-green-600" />
-                Status RPS
-              </CardTitle>
-              <CardDescription>
-                Distribusi status RPS saat ini
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-6">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="w-4 h-4 bg-green-500 rounded-full"></div>
-                    <span className="font-medium text-slate-900">Disetujui</span>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-green-600">{reportData.rpsSubmissions.approved}</p>
-                    <p className="text-sm text-slate-600">
-                      {Math.round((reportData.rpsSubmissions.approved / reportData.rpsSubmissions.total) * 100)}%
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="w-4 h-4 bg-yellow-500 rounded-full"></div>
-                    <span className="font-medium text-slate-900">Pending</span>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-yellow-600">{reportData.rpsSubmissions.pending}</p>
-                    <p className="text-sm text-slate-600">
-                      {Math.round((reportData.rpsSubmissions.pending / reportData.rpsSubmissions.total) * 100)}%
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="w-4 h-4 bg-red-500 rounded-full"></div>
-                    <span className="font-medium text-slate-900">Ditolak</span>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-red-600">{reportData.rpsSubmissions.rejected}</p>
-                    <p className="text-sm text-slate-600">
-                      {Math.round((reportData.rpsSubmissions.rejected / reportData.rpsSubmissions.total) * 100)}%
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* CPL Mapping Analysis */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Target className="h-5 w-5 text-purple-600" />
-              Analisis Pemetaan CPL
-            </CardTitle>
-            <CardDescription>
-              Status pemetaan CPL per mata kuliah
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-6">
-            <div className="space-y-4">
-              {reportData.cplMapping.byCourse.map((course, index) => (
-                <div key={index} className="p-4 border border-slate-200 rounded-lg">
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="font-medium text-slate-900">{course.course}</h4>
-                    <Badge 
-                      className={
-                        (course.mapped / course.total) >= 0.8 
-                          ? 'bg-green-100 text-green-800 hover:bg-green-100'
-                          : (course.mapped / course.total) >= 0.6
-                          ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'
-                          : 'bg-red-100 text-red-800 hover:bg-red-100'
-                      }
-                    >
-                      {Math.round((course.mapped / course.total) * 100)}%
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm text-slate-600">
-                          {course.mapped} dari {course.total} CPL
-                        </span>
-                      </div>
-                      <Progress value={(course.mapped / course.total) * 100} className="h-2" />
-                    </div>
-                    <Button size="sm" variant="outline">
-                      <Eye className="h-4 w-4 mr-1" />
-                      Detail
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Course Distribution and Activity */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Course Distribution */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BookOpen className="h-5 w-5 text-indigo-600" />
-                Distribusi Mata Kuliah
-              </CardTitle>
-              <CardDescription>
-                Kategori mata kuliah berdasarkan jenis
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-6">
-              <div className="space-y-4">
-                {reportData.courseDistribution.byCategory.map((category, index) => (
-                  <div key={index} className="flex items-center gap-4">
-                    <div className={`w-4 h-4 ${category.color} rounded-full`}></div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium text-slate-900">{category.category}</span>
-                        <span className="text-sm font-medium">{category.count}</span>
-                      </div>
-                      <Progress 
-                        value={(category.count / reportData.courseDistribution.totalCourses) * 100} 
-                        className="h-2" 
-                      />
-                    </div>
-                  </div>
-                ))}
-                
-                <div className="pt-4 border-t">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
+                  
+                  <div className="grid grid-cols-2 gap-4 pt-4">
                     <div className="text-center p-3 bg-green-50 rounded-lg">
-                      <p className="font-bold text-green-600">{reportData.courseDistribution.withRPS}</p>
-                      <p className="text-slate-600">Dengan RPS</p>
+                      <p className="text-2xl font-bold text-green-700">{reportData.cplMapping.publishedCPL}</p>
+                      <p className="text-sm text-green-600">CPL Aktif</p>
                     </div>
-                    <div className="text-center p-3 bg-red-50 rounded-lg">
-                      <p className="font-bold text-red-600">{reportData.courseDistribution.withoutRPS}</p>
-                      <p className="text-slate-600">Tanpa RPS</p>
+                    <div className="text-center p-3 bg-slate-50 rounded-lg">
+                      <p className="text-2xl font-bold text-slate-700">{reportData.cplMapping.draftCPL}</p>
+                      <p className="text-sm text-slate-600">CPL Draft</p>
                     </div>
                   </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
 
-          {/* Dosen Activity */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-orange-600" />
-                Aktivitas Dosen
-              </CardTitle>
-              <CardDescription>
-                Ringkasan aktivitas dosen bulan ini
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-6">
-              <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center p-4 bg-blue-50 rounded-lg">
-                    <p className="text-2xl font-bold text-blue-600">{reportData.dosenActivity.totalDosen}</p>
-                    <p className="text-sm text-slate-600">Total Dosen</p>
-                  </div>
-                  <div className="text-center p-4 bg-green-50 rounded-lg">
-                    <p className="text-2xl font-bold text-green-600">{reportData.dosenActivity.activeDosen}</p>
-                    <p className="text-sm text-slate-600">Dosen Aktif</p>
-                  </div>
-                </div>
-                
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-slate-600" />
-                      <span className="text-sm font-medium">Total Submissions</span>
+              {/* Course Distribution */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BookOpen className="h-5 w-5 text-orange-600" />
+                    Distribusi Mata Kuliah
+                  </CardTitle>
+                  <CardDescription>Status kelengkapan RPS per mata kuliah</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      <div className="flex-1">
+                        <div className="flex justify-between mb-2">
+                          <span className="text-sm text-slate-600">Dengan RPS</span>
+                          <span className="text-sm font-medium">{reportData.courseDistribution.withRPS}</span>
+                        </div>
+                        <div className="w-full bg-slate-200 rounded-full h-4">
+                          <div 
+                            className="bg-green-500 h-4 rounded-full"
+                            style={{ 
+                              width: `${reportData.courseDistribution.totalCourses > 0 
+                                ? (reportData.courseDistribution.withRPS / reportData.courseDistribution.totalCourses * 100) 
+                                : 0}%` 
+                            }}
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <span className="font-bold">{reportData.dosenActivity.submissions}</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-slate-600" />
-                      <span className="text-sm font-medium">Avg Response Time</span>
-                    </div>
-                    <span className="font-bold">{reportData.dosenActivity.avgResponseTime}</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <TrendingUp className="h-4 w-4 text-green-600" />
-                      <span className="text-sm font-medium">Activity Rate</span>
-                    </div>
-                    <span className="font-bold text-green-600">
-                      {Math.round((reportData.dosenActivity.activeDosen / reportData.dosenActivity.totalDosen) * 100)}%
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
 
-        {/* Export Options */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Export Laporan</CardTitle>
-            <CardDescription>
-              Pilih format export yang diinginkan
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-6">
-            <div className="flex flex-wrap gap-3">
-              <Button 
-                variant="outline" 
-                onClick={() => exportReport('pdf')}
-                className="flex items-center gap-2"
-              >
-                <FileText className="h-4 w-4" />
-                Export PDF
-              </Button>
-              <Button 
-                variant="outline" 
-                onClick={() => exportReport('excel')}
-                className="flex items-center gap-2"
-              >
-                <BarChart3 className="h-4 w-4" />
-                Export Excel
-              </Button>
-              <Button 
-                variant="outline" 
-                onClick={() => exportReport('csv')}
-                className="flex items-center gap-2"
-              >
-                <Download className="h-4 w-4" />
-                Export CSV
-              </Button>
+                    <div className="flex items-center gap-4">
+                      <div className="flex-1">
+                        <div className="flex justify-between mb-2">
+                          <span className="text-sm text-slate-600">Tanpa RPS</span>
+                          <span className="text-sm font-medium">{reportData.courseDistribution.withoutRPS}</span>
+                        </div>
+                        <div className="w-full bg-slate-200 rounded-full h-4">
+                          <div 
+                            className="bg-red-500 h-4 rounded-full"
+                            style={{ 
+                              width: `${reportData.courseDistribution.totalCourses > 0 
+                                ? (reportData.courseDistribution.withoutRPS / reportData.courseDistribution.totalCourses * 100) 
+                                : 0}%` 
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t">
+                      <p className="text-center text-sm text-slate-600">
+                        <span className="font-semibold text-green-600">
+                          {reportData.courseDistribution.totalCourses > 0 
+                            ? Math.round(reportData.courseDistribution.withRPS / reportData.courseDistribution.totalCourses * 100) 
+                            : 0}%
+                        </span>
+                        {' '}mata kuliah sudah memiliki RPS
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Dosen Activity */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-purple-600" />
+                    Aktivitas Dosen
+                  </CardTitle>
+                  <CardDescription>Ringkasan penugasan dan aktivitas dosen</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-purple-50 rounded-lg text-center">
+                      <GraduationCap className="h-8 w-8 text-purple-600 mx-auto mb-2" />
+                      <p className="text-2xl font-bold text-purple-700">{reportData.dosenActivity.totalDosen}</p>
+                      <p className="text-sm text-purple-600">Dosen Aktif</p>
+                    </div>
+                    
+                    <div className="p-4 bg-blue-50 rounded-lg text-center">
+                      <Target className="h-8 w-8 text-blue-600 mx-auto mb-2" />
+                      <p className="text-2xl font-bold text-blue-700">{reportData.dosenActivity.activeAssignments}</p>
+                      <p className="text-sm text-blue-600">Penugasan Aktif</p>
+                    </div>
+                    
+                    <div className="p-4 bg-green-50 rounded-lg text-center">
+                      <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
+                      <p className="text-2xl font-bold text-green-700">{reportData.dosenActivity.completedAssignments}</p>
+                      <p className="text-sm text-green-600">Selesai</p>
+                    </div>
+                    
+                    <div className="p-4 bg-yellow-50 rounded-lg text-center">
+                      <Clock className="h-8 w-8 text-yellow-600 mx-auto mb-2" />
+                      <p className="text-2xl font-bold text-yellow-700">{reportData.dosenActivity.pendingAssignments}</p>
+                      <p className="text-sm text-yellow-600">Menunggu</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-          </CardContent>
-        </Card>
+
+            {/* CPL List */}
+            {cplList.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Daftar CPL</CardTitle>
+                  <CardDescription>Capaian Pembelajaran Lulusan yang terdaftar</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {cplList.slice(0, 5).map(cpl => (
+                      <div key={cpl.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <Badge variant="outline">{cpl.kode}</Badge>
+                          <p className="text-sm text-slate-700 line-clamp-1">{cpl.deskripsi}</p>
+                        </div>
+                        <Badge className={cpl.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-800'}>
+                          {cpl.status === 'published' ? 'Aktif' : 'Draft'}
+                        </Badge>
+                      </div>
+                    ))}
+                    {cplList.length > 5 && (
+                      <p className="text-center text-sm text-slate-500">
+                        +{cplList.length - 5} CPL lainnya
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </>
+        )}
       </div>
     </DashboardLayout>
   )

@@ -1,17 +1,16 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DashboardLayout } from '@/components/layout'
+import Link from 'next/link'
 import { 
   Search, 
-  Plus, 
-  Edit, 
-  Trash2, 
   Eye,
   FileText,
   Target,
@@ -19,373 +18,431 @@ import {
   CheckCircle,
   Clock,
   AlertTriangle,
-  Filter,
-  Download,
-  Upload
+  Loader2,
+  RefreshCw,
+  AlertCircle,
+  Link2
 } from 'lucide-react'
+import { rpsService, type RPS, type CPMK } from '@/lib/api/rps'
+import { cplService, type CPL } from '@/lib/api/cpl'
+import { cplMKMappingService, type CPLMKMapping } from '@/lib/api/cpl-mk-mapping'
+import { authService } from '@/lib/api/auth'
 
-interface CPMK {
+interface DisplayCPMK {
   id: string
   kode: string
   deskripsi: string
-  cpl: string[]
+  cplIds: string[]
   mataKuliah: string
-  semester: number
-  status: 'draft' | 'active' | 'review'
-  createdAt: string
-  updatedAt: string
+  mataKuliahId: string
+  rpsId: string
+  rpsStatus: string
 }
-
-const mockCPMK: CPMK[] = [
-  {
-    id: '1',
-    kode: 'CPMK-01',
-    deskripsi: 'Mampu menganalisis kebutuhan sistem informasi dan merancang solusi yang tepat',
-    cpl: ['CPL-1', 'CPL-3'],
-    mataKuliah: 'Analisis dan Perancangan Sistem',
-    semester: 4,
-    status: 'active',
-    createdAt: '2024-01-15',
-    updatedAt: '2024-01-20'
-  },
-  {
-    id: '2',
-    kode: 'CPMK-02',
-    deskripsi: 'Mampu mengimplementasikan algoritma dan struktur data yang efisien',
-    cpl: ['CPL-2', 'CPL-4'],
-    mataKuliah: 'Algoritma dan Struktur Data',
-    semester: 3,
-    status: 'active',
-    createdAt: '2024-01-10',
-    updatedAt: '2024-01-18'
-  },
-  {
-    id: '3',
-    kode: 'CPMK-03',
-    deskripsi: 'Mampu mengembangkan aplikasi web dengan framework modern',
-    cpl: ['CPL-5', 'CPL-6'],
-    mataKuliah: 'Pemrograman Web',
-    semester: 5,
-    status: 'draft',
-    createdAt: '2024-02-01',
-    updatedAt: '2024-02-05'
-  },
-  {
-    id: '4',
-    kode: 'CPMK-04',
-    deskripsi: 'Mampu merancang dan mengelola basis data yang efektif',
-    cpl: ['CPL-3', 'CPL-7'],
-    mataKuliah: 'Sistem Basis Data',
-    semester: 4,
-    status: 'review',
-    createdAt: '2024-01-25',
-    updatedAt: '2024-02-02'
-  }
-]
 
 const statusColors = {
   draft: 'bg-gray-100 text-gray-800 border-gray-200',
-  active: 'bg-green-100 text-green-800 border-green-200',
-  review: 'bg-yellow-100 text-yellow-800 border-yellow-200'
+  submitted: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+  approved: 'bg-green-100 text-green-800 border-green-200',
+  rejected: 'bg-red-100 text-red-800 border-red-200',
+  published: 'bg-blue-100 text-blue-800 border-blue-200'
 }
 
-const statusIcons = {
-  draft: Clock,
-  active: CheckCircle,
-  review: AlertTriangle
+const levelColors = {
+  tinggi: 'bg-red-100 text-red-800',
+  sedang: 'bg-yellow-100 text-yellow-800',
+  rendah: 'bg-green-100 text-green-800'
 }
 
 export default function DosenMappingPage() {
+  const router = useRouter()
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [rpsList, setRpsList] = useState<RPS[]>([])
+  const [cplList, setCplList] = useState<CPL[]>([])
+  const [cplMkMappings, setCplMkMappings] = useState<CPLMKMapping[]>([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedSemester, setSelectedSemester] = useState<string>('all')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
+  const [activeView, setActiveView] = useState<'cpmk' | 'cpl-mk'>('cpmk')
 
-  const filteredCPMK = mockCPMK.filter(cpmk => {
-    const matchesSearch = cpmk.deskripsi.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         cpmk.kode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         cpmk.mataKuliah.toLowerCase().includes(searchQuery.toLowerCase())
-    
-    const matchesSemester = selectedSemester === 'all' || cpmk.semester.toString() === selectedSemester
-    const matchesStatus = selectedStatus === 'all' || cpmk.status === selectedStatus
-    
-    return matchesSearch && matchesSemester && matchesStatus
+  const fetchData = useCallback(async () => {
+    if (!authService.isAuthenticated()) {
+      router.push('/login')
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError(null)
+      
+      const [rpsRes, cplRes, mappingRes] = await Promise.all([
+        rpsService.getMy(),
+        cplService.getAll({ limit: 100 }),
+        cplMKMappingService.getAll()
+      ])
+      
+      let rpsData: RPS[] = []
+      if (rpsRes.data) {
+        if (Array.isArray(rpsRes.data)) {
+          rpsData = rpsRes.data
+        } else if (rpsRes.data.data && Array.isArray(rpsRes.data.data)) {
+          rpsData = rpsRes.data.data
+        }
+      }
+      
+      let cplData: CPL[] = []
+      if (cplRes.data) {
+        if (Array.isArray(cplRes.data)) {
+          cplData = cplRes.data
+        } else if (cplRes.data.data && Array.isArray(cplRes.data.data)) {
+          cplData = cplRes.data.data
+        }
+      }
+
+      let mappingData: CPLMKMapping[] = []
+      if (mappingRes.data) {
+        if (Array.isArray(mappingRes.data)) {
+          mappingData = mappingRes.data
+        } else if (mappingRes.data.data && Array.isArray(mappingRes.data.data)) {
+          mappingData = mappingRes.data.data
+        }
+      }
+      
+      setRpsList(rpsData)
+      setCplList(cplData)
+      setCplMkMappings(mappingData)
+    } catch (err) {
+      console.error('Error fetching data:', err)
+      setError(err instanceof Error ? err.message : 'Gagal memuat data')
+    } finally {
+      setLoading(false)
+    }
+  }, [router])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  // Extract all CPMK from RPS
+  const allCPMK: DisplayCPMK[] = rpsList.flatMap(rps => {
+    const cpmkList = rps.cpmk || []
+    return cpmkList.map((cpmk: CPMK) => ({
+      id: cpmk.id,
+      kode: cpmk.kode,
+      deskripsi: cpmk.deskripsi,
+      cplIds: cpmk.cpl_ids || [],
+      mataKuliah: rps.mata_kuliah_nama || rps.kode_mk,
+      mataKuliahId: rps.mata_kuliah_id,
+      rpsId: rps.id,
+      rpsStatus: rps.status
+    }))
   })
+
+  // Filter CPMK
+  const filteredCPMK = allCPMK.filter(cpmk => {
+    const matchesSearch = 
+      cpmk.deskripsi.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      cpmk.kode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      cpmk.mataKuliah.toLowerCase().includes(searchQuery.toLowerCase())
+    
+    const matchesStatus = selectedStatus === 'all' || cpmk.rpsStatus === selectedStatus
+    
+    return matchesSearch && matchesStatus
+  })
+
+  // Stats
+  const stats = {
+    total: allCPMK.length,
+    approved: allCPMK.filter(c => c.rpsStatus === 'approved').length,
+    pending: allCPMK.filter(c => c.rpsStatus === 'submitted').length,
+    draft: allCPMK.filter(c => c.rpsStatus === 'draft').length,
+  }
+
+  // Get CPL name by ID
+  const getCPLKode = (cplId: string): string => {
+    const cpl = cplList.find(c => c.id === cplId)
+    return cpl?.kode || cplId
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-[60vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <span className="ml-2 text-slate-600">Memuat data mapping...</span>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
+          <AlertCircle className="h-12 w-12 text-red-500" />
+          <p className="text-lg font-medium text-slate-900">Gagal Memuat Data</p>
+          <p className="text-slate-600">{error}</p>
+          <Button onClick={fetchData}>Coba Lagi</Button>
+        </div>
+      </DashboardLayout>
+    )
+  }
 
   return (
     <DashboardLayout>
       <div className="space-y-8">
-      {/* Header */}
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold text-slate-900">Mapping CPMK</h1>
-        <p className="text-slate-600">
-          Kelola mapping Capaian Pembelajaran Mata Kuliah (CPMK) ke CPL Program Studi
-        </p>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100">
-                <Target className="h-6 w-6 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-600">Total CPMK</p>
-                <p className="text-2xl font-bold text-slate-900">24</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-green-100">
-                <CheckCircle className="h-6 w-6 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-600">CPMK Aktif</p>
-                <p className="text-2xl font-bold text-slate-900">18</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-yellow-100">
-                <Clock className="h-6 w-6 text-yellow-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-600">Dalam Review</p>
-                <p className="text-2xl font-bold text-slate-900">4</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-red-100">
-                <AlertTriangle className="h-6 w-6 text-red-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-600">Draft</p>
-                <p className="text-2xl font-bold text-slate-900">2</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Main Content */}
-      <Tabs defaultValue="list" className="space-y-6">
-        <div className="flex flex-col sm:flex-row gap-4 justify-between">
-          <TabsList>
-            <TabsTrigger value="list">Daftar CPMK</TabsTrigger>
-            <TabsTrigger value="mapping">Mapping CPL</TabsTrigger>
-            <TabsTrigger value="analytics">Analytics</TabsTrigger>
-          </TabsList>
-
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm">
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-            <Button variant="outline" size="sm">
-              <Upload className="h-4 w-4 mr-2" />
-              Import
-            </Button>
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-2" />
-              Tambah CPMK
-            </Button>
+        {/* Header */}
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Mapping CPL & CPMK</h1>
+            <p className="text-slate-600">
+              Lihat mapping CPL ke Mata Kuliah dan CPMK dari RPS yang Anda kelola
+            </p>
           </div>
+          <Button variant="outline" onClick={fetchData} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
         </div>
 
-        <TabsContent value="list" className="space-y-6">
-          {/* Filters */}
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex flex-col sm:flex-row gap-4">
-                <div className="flex-1">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4" />
-                    <Input
-                      placeholder="Cari CPMK atau mata kuliah..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-10"
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <select
-                    value={selectedSemester}
-                    onChange={(e) => setSelectedSemester(e.target.value)}
-                    className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="all">Semua Semester</option>
-                    <option value="1">Semester 1</option>
-                    <option value="2">Semester 2</option>
-                    <option value="3">Semester 3</option>
-                    <option value="4">Semester 4</option>
-                    <option value="5">Semester 5</option>
-                    <option value="6">Semester 6</option>
-                    <option value="7">Semester 7</option>
-                    <option value="8">Semester 8</option>
-                  </select>
-                  <select
-                    value={selectedStatus}
-                    onChange={(e) => setSelectedStatus(e.target.value)}
-                    className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="all">Semua Status</option>
-                    <option value="draft">Draft</option>
-                    <option value="active">Aktif</option>
-                    <option value="review">Review</option>
-                  </select>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        {/* Tabs for switching views */}
+        <Tabs value={activeView} onValueChange={(v) => setActiveView(v as 'cpmk' | 'cpl-mk')}>
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsTrigger value="cpmk">
+              <Target className="h-4 w-4 mr-2" />
+              CPMK dari RPS
+            </TabsTrigger>
+            <TabsTrigger value="cpl-mk">
+              <Link2 className="h-4 w-4 mr-2" />
+              CPL - Mata Kuliah
+            </TabsTrigger>
+          </TabsList>
 
-          {/* CPMK List */}
-          <div className="space-y-4">
-            {filteredCPMK.map((cpmk) => {
-              const StatusIcon = statusIcons[cpmk.status]
-              return (
-                <Card key={cpmk.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-6">
-                    <div className="flex flex-col lg:flex-row gap-4">
-                      <div className="flex-1 space-y-3">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <h3 className="font-semibold text-slate-900">{cpmk.kode}</h3>
-                            <p className="text-sm text-slate-600 mt-1">{cpmk.deskripsi}</p>
-                          </div>
-                          <Badge className={statusColors[cpmk.status]} variant="outline">
-                            <StatusIcon className="h-3 w-3 mr-1" />
-                            {cpmk.status}
-                          </Badge>
-                        </div>
-                        
-                        <div className="flex flex-wrap gap-4 text-sm text-slate-600">
-                          <div className="flex items-center gap-1">
-                            <BookOpen className="h-4 w-4" />
-                            {cpmk.mataKuliah}
-                          </div>
-                          <div>Semester {cpmk.semester}</div>
-                          <div>Updated: {new Date(cpmk.updatedAt).toLocaleDateString('id-ID')}</div>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          {cpmk.cpl.map((cpl) => (
-                            <Badge key={cpl} variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                              {cpl}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                      
-                      <div className="flex flex-row lg:flex-col gap-2 lg:w-32">
-                        <Button variant="outline" size="sm" className="flex-1 lg:flex-none">
-                          <Eye className="h-4 w-4 mr-2" />
-                          Lihat
-                        </Button>
-                        <Button variant="outline" size="sm" className="flex-1 lg:flex-none">
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit
-                        </Button>
-                        <Button variant="outline" size="sm" className="flex-1 lg:flex-none text-red-600 hover:text-red-700">
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Hapus
-                        </Button>
-                      </div>
+          {/* CPMK View */}
+          <TabsContent value="cpmk" className="space-y-6">
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100">
+                      <Target className="h-6 w-6 text-blue-600" />
                     </div>
-                  </CardContent>
-                </Card>
-              )
-            })}
-          </div>
-
-          {filteredCPMK.length === 0 && (
-            <Card>
-              <CardContent className="p-12 text-center">
-                <div className="flex flex-col items-center gap-4">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100">
-                    <Target className="h-8 w-8 text-slate-400" />
+                    <div>
+                      <p className="text-sm font-medium text-slate-600">Total CPMK</p>
+                      <p className="text-2xl font-bold text-slate-900">{stats.total}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-slate-900">Tidak ada CPMK ditemukan</h3>
-                    <p className="text-sm text-slate-600 mt-1">
-                      Coba ubah filter atau kata kunci pencarian Anda
-                    </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-green-100">
+                      <CheckCircle className="h-6 w-6 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-600">RPS Disetujui</p>
+                      <p className="text-2xl font-bold text-slate-900">{stats.approved}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-yellow-100">
+                      <Clock className="h-6 w-6 text-yellow-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-600">Menunggu Review</p>
+                      <p className="text-2xl font-bold text-slate-900">{stats.pending}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100">
+                      <AlertTriangle className="h-6 w-6 text-gray-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-600">Draft</p>
+                      <p className="text-2xl font-bold text-slate-900">{stats.draft}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Filters */}
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="flex-1">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4" />
+                      <Input
+                        placeholder="Cari CPMK atau mata kuliah..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedStatus}
+                      onChange={(e) => setSelectedStatus(e.target.value)}
+                      className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="all">Semua Status RPS</option>
+                      <option value="draft">Draft</option>
+                      <option value="submitted">Menunggu Review</option>
+                      <option value="approved">Disetujui</option>
+                      <option value="rejected">Ditolak</option>
+                    </select>
                   </div>
                 </div>
               </CardContent>
             </Card>
-          )}
-        </TabsContent>
 
-        <TabsContent value="mapping" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Mapping Matrix CPMK - CPL</CardTitle>
-              <CardDescription>
-                Visualisasi hubungan antara Capaian Pembelajaran Mata Kuliah dengan CPL Program Studi
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-12">
-                <div className="flex flex-col items-center gap-4">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-100">
-                    <Target className="h-8 w-8 text-blue-600" />
+            {/* CPMK List */}
+            {filteredCPMK.length > 0 ? (
+              <div className="space-y-4">
+                {filteredCPMK.map((cpmk) => (
+                  <Card key={cpmk.id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="p-6">
+                      <div className="flex flex-col lg:flex-row gap-4">
+                        <div className="flex-1 space-y-3">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <h3 className="font-semibold text-slate-900">{cpmk.kode}</h3>
+                              <p className="text-sm text-slate-600 mt-1">{cpmk.deskripsi}</p>
+                            </div>
+                            <Badge className={statusColors[cpmk.rpsStatus as keyof typeof statusColors] || statusColors.draft} variant="outline">
+                              {cpmk.rpsStatus === 'approved' ? 'Disetujui' :
+                               cpmk.rpsStatus === 'submitted' ? 'Menunggu Review' :
+                               cpmk.rpsStatus === 'rejected' ? 'Ditolak' : 'Draft'}
+                            </Badge>
+                          </div>
+                          
+                          <div className="flex flex-wrap gap-4 text-sm text-slate-600">
+                            <div className="flex items-center gap-1">
+                              <BookOpen className="h-4 w-4" />
+                              {cpmk.mataKuliah}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            <span className="text-sm text-slate-500">Terkait CPL:</span>
+                            {cpmk.cplIds.length > 0 ? (
+                              cpmk.cplIds.map((cplId) => (
+                                <Badge key={cplId} variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                  {getCPLKode(cplId)}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-sm text-slate-400">Belum ada CPL terkait</span>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="flex flex-row lg:flex-col gap-2 lg:w-32">
+                          <Button variant="outline" size="sm" className="flex-1 lg:flex-none" asChild>
+                            <Link href={`/dosen/rps/${cpmk.rpsId}`}>
+                              <Eye className="h-4 w-4 mr-2" />
+                              Lihat RPS
+                            </Link>
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100">
+                      <Target className="h-8 w-8 text-slate-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-slate-900">Tidak ada CPMK ditemukan</h3>
+                      <p className="text-sm text-slate-600 mt-1">
+                        {searchQuery || selectedStatus !== 'all' 
+                          ? 'Coba ubah filter atau kata kunci pencarian Anda'
+                          : 'Anda belum memiliki CPMK. Buat RPS terlebih dahulu dan tambahkan CPMK di dalamnya.'}
+                      </p>
+                    </div>
+                    {rpsList.length === 0 && (
+                      <Button asChild>
+                        <Link href="/dosen/rps/create">
+                          <FileText className="h-4 w-4 mr-2" />
+                          Buat RPS
+                        </Link>
+                      </Button>
+                    )}
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-slate-900">Mapping Matrix</h3>
-                    <p className="text-sm text-slate-600 mt-1">
-                      Fitur ini akan menampilkan matrix mapping CPMK ke CPL
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {/* CPL-MK Mapping View */}
+          <TabsContent value="cpl-mk" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Mapping CPL ke Mata Kuliah</CardTitle>
+                <CardDescription>
+                  Daftar hubungan antara CPL (Capaian Pembelajaran Lulusan) dengan Mata Kuliah
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {cplMkMappings.length > 0 ? (
+                  <div className="space-y-4">
+                    {cplMkMappings.map((mapping) => (
+                      <div key={mapping.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-slate-50">
+                        <div className="flex items-center gap-4">
+                          <Badge variant="outline" className="text-blue-700 bg-blue-50 border-blue-200">
+                            {mapping.cpl?.kode || 'CPL'}
+                          </Badge>
+                          <div className="flex items-center">
+                            <Link2 className="h-4 w-4 text-slate-400 mx-2" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-slate-900">
+                              {mapping.mata_kuliah?.kode} - {mapping.mata_kuliah?.nama}
+                            </p>
+                            <p className="text-sm text-slate-500">
+                              Semester {mapping.mata_kuliah?.semester}
+                            </p>
+                          </div>
+                        </div>
+                        <Badge className={levelColors[mapping.level as keyof typeof levelColors] || 'bg-gray-100'}>
+                          {mapping.level === 'tinggi' ? 'Tinggi' : 
+                           mapping.level === 'sedang' ? 'Sedang' : 'Rendah'}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Link2 className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+                    <h3 className="font-medium text-slate-900">Belum ada mapping CPL-MK</h3>
+                    <p className="text-sm text-slate-500 mt-1">
+                      Mapping CPL ke Mata Kuliah akan ditampilkan di sini
                     </p>
                   </div>
-                  <Button>
-                    Buat Mapping Matrix
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="analytics" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Analytics & Reports</CardTitle>
-              <CardDescription>
-                Analisis dan laporan mapping CPMK
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-12">
-                <div className="flex flex-col items-center gap-4">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
-                    <FileText className="h-8 w-8 text-green-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-slate-900">Coming Soon</h3>
-                    <p className="text-sm text-slate-600 mt-1">
-                      Fitur analytics dan reports sedang dalam pengembangan
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </DashboardLayout>
   )

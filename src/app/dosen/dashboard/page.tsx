@@ -18,20 +18,20 @@ import {
   Calendar,
   ArrowRight,
   Loader2,
-  Plus
+  Plus,
+  ClipboardList
 } from "lucide-react"
 import Link from "next/link"
 import { rpsService } from "@/lib/api/rps"
-import { cplService } from "@/lib/api/cpl"
+import { dashboardService, type DosenDashboard } from "@/lib/api/dashboard"
 import { authService } from "@/lib/api/auth"
 import type { RPS } from "@/lib/api/rps"
-import type { CPL } from "@/lib/api/cpl"
 import { formatDate } from "@/lib/utils"
 
 export default function DosenDashboardPage() {
   const router = useRouter()
   const [rpsList, setRpsList] = useState<RPS[]>([])
-  const [cplList, setCplList] = useState<CPL[]>([])
+  const [dashboardData, setDashboardData] = useState<DosenDashboard | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -45,12 +45,26 @@ export default function DosenDashboardPage() {
     try {
       setLoading(true)
       setError(null)
-      const [rpsResponse, cplResponse] = await Promise.all([
+      const [rpsResponse, dashboardResponse] = await Promise.all([
         rpsService.getMy(),
-        cplService.getAll({ limit: 100 })
+        dashboardService.getDosen()
       ])
-      setRpsList(rpsResponse.data?.data || [])
-      setCplList(cplResponse.data?.data || [])
+      
+      // Handle RPS list
+      let rpsData: RPS[] = []
+      if (rpsResponse.data) {
+        if (Array.isArray(rpsResponse.data)) {
+          rpsData = rpsResponse.data
+        } else if (rpsResponse.data.data && Array.isArray(rpsResponse.data.data)) {
+          rpsData = rpsResponse.data.data
+        }
+      }
+      setRpsList(rpsData)
+      
+      // Handle dashboard data
+      if (dashboardResponse.data) {
+        setDashboardData(dashboardResponse.data)
+      }
     } catch (err) {
       console.error('Error fetching data:', err)
       setError(err instanceof Error ? err.message : 'Gagal memuat data')
@@ -63,13 +77,17 @@ export default function DosenDashboardPage() {
     fetchData()
   }, [fetchData])
 
-  // Calculate stats
+  // Calculate stats - prefer dashboard API data, fallback to local calculation
   const stats = {
-    totalRPS: rpsList.length,
-    approvedRPS: rpsList.filter(rps => rps.status === 'approved').length,
-    pendingRPS: rpsList.filter(rps => rps.status === 'submitted').length,
-    draftRPS: rpsList.filter(rps => rps.status === 'draft').length,
-    totalCPL: cplList.length,
+    totalRPS: dashboardData?.my_rps ?? dashboardData?.total_rps ?? rpsList.length,
+    approvedRPS: dashboardData?.approved_rps ?? rpsList.filter(rps => rps.status === 'approved').length,
+    pendingRPS: dashboardData?.submitted_rps ?? rpsList.filter(rps => rps.status === 'submitted').length,
+    draftRPS: dashboardData?.draft_rps ?? rpsList.filter(rps => rps.status === 'draft').length,
+    totalAssignments: dashboardData?.my_assignments ?? dashboardData?.total_assignments ?? 0,
+    pendingAssignments: dashboardData?.pending_assignments ?? 0,
+    acceptedAssignments: dashboardData?.accepted_assignments ?? 0,
+    completedAssignments: dashboardData?.completed_assignments ?? 0,
+    totalMataKuliah: dashboardData?.my_mata_kuliah ?? 0,
   }
 
   const completionRate = stats.totalRPS > 0 
@@ -83,8 +101,15 @@ export default function DosenDashboardPage() {
     return (
       <DashboardLayout>
         <div className="flex h-[60vh] items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          <span className="ml-2 text-slate-600">Memuat dashboard...</span>
+          <div className="text-center space-y-4">
+            <div className="flex justify-center">
+              <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+            </div>
+            <div>
+              <p className="text-slate-700 font-medium">Memuat dashboard Anda...</p>
+              <p className="text-sm text-slate-500 mt-1">Tunggu sebentar</p>
+            </div>
+          </div>
         </div>
       </DashboardLayout>
     )
@@ -94,10 +119,18 @@ export default function DosenDashboardPage() {
     return (
       <DashboardLayout>
         <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
-          <AlertCircle className="h-12 w-12 text-red-500" />
-          <p className="text-lg font-medium text-slate-900">Gagal Memuat Data</p>
-          <p className="text-slate-600">{error}</p>
-          <Button onClick={fetchData}>Coba Lagi</Button>
+          <div className="flex justify-center">
+            <div className="rounded-full bg-red-100 p-4">
+              <AlertCircle className="h-12 w-12 text-red-600" />
+            </div>
+          </div>
+          <div className="text-center space-y-2">
+            <p className="text-lg font-semibold text-slate-900">Oops! Gagal Memuat Data</p>
+            <p className="text-sm text-slate-600 max-w-md">{error}</p>
+          </div>
+          <Button onClick={fetchData} className="mt-4">
+            Coba Lagi
+          </Button>
         </div>
       </DashboardLayout>
     )
@@ -124,7 +157,7 @@ export default function DosenDashboardPage() {
 
         {/* Stats Cards */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card className="border-l-4 border-l-blue-500">
+          <Card className="border-l-4 border-l-blue-500 hover:shadow-md hover:shadow-blue-100 transition-all duration-300 cursor-pointer">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -138,7 +171,7 @@ export default function DosenDashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-l-4 border-l-green-500">
+          <Card className="border-l-4 border-l-green-500 hover:shadow-md hover:shadow-green-100 transition-all duration-300 cursor-pointer">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -152,7 +185,7 @@ export default function DosenDashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-l-4 border-l-yellow-500">
+          <Card className="border-l-4 border-l-yellow-500 hover:shadow-md hover:shadow-yellow-100 transition-all duration-300 cursor-pointer">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -166,15 +199,15 @@ export default function DosenDashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-l-4 border-l-purple-500">
+          <Card className="border-l-4 border-l-purple-500 hover:shadow-md hover:shadow-purple-100 transition-all duration-300 cursor-pointer">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-slate-600">CPL Tersedia</p>
-                  <p className="text-3xl font-bold text-slate-900">{stats.totalCPL}</p>
+                  <p className="text-sm font-medium text-slate-600">Tugas CPL</p>
+                  <p className="text-3xl font-bold text-slate-900">{stats.totalAssignments}</p>
                 </div>
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-purple-100">
-                  <Target className="h-6 w-6 text-purple-600" />
+                  <ClipboardList className="h-6 w-6 text-purple-600" />
                 </div>
               </div>
             </CardContent>

@@ -1,23 +1,20 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { DashboardLayout } from '@/components/layout'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { 
   Database,
   Download,
-  Upload,
   RefreshCw,
   Check,
   AlertTriangle,
-  Clock,
   HardDrive,
-  Shield,
   Calendar,
   FileText,
   Archive,
@@ -28,113 +25,115 @@ import {
   CloudUpload,
   Server,
   Lock,
-  Unlock,
-  Eye,
-  EyeOff,
-  Info
+  Info,
+  Loader2,
+  AlertCircle,
+  Upload
 } from 'lucide-react'
-
-
-interface BackupItem {
-  id: string
-  name: string
-  type: 'full' | 'rps' | 'users' | 'system'
-  size: string
-  date: string
-  status: 'completed' | 'failed' | 'in_progress'
-  description: string
-  downloadUrl?: string
-}
-
-const mockBackups: BackupItem[] = [
-  {
-    id: 'backup-1',
-    name: 'Full System Backup - 2024-01-15',
-    type: 'full',
-    size: '2.4 GB',
-    date: '2024-01-15 03:00:00',
-    status: 'completed',
-    description: 'Backup lengkap sistem termasuk RPS, user data, dan konfigurasi',
-    downloadUrl: '#'
-  },
-  {
-    id: 'backup-2',
-    name: 'RPS Data Backup - 2024-01-14',
-    type: 'rps',
-    size: '156 MB',
-    date: '2024-01-14 14:30:00',
-    status: 'completed',
-    description: 'Backup data RPS dan dokumen terkait',
-    downloadUrl: '#'
-  },
-  {
-    id: 'backup-3',
-    name: 'User Management Backup - 2024-01-13',
-    type: 'users',
-    size: '45 MB',
-    date: '2024-01-13 09:15:00',
-    status: 'completed',
-    description: 'Backup data pengguna, roles, dan permissions',
-    downloadUrl: '#'
-  },
-  {
-    id: 'backup-4',
-    name: 'System Configuration - 2024-01-12',
-    type: 'system',
-    size: '12 MB',
-    date: '2024-01-12 18:45:00',
-    status: 'failed',
-    description: 'Backup konfigurasi sistem dan pengaturan aplikasi'
-  },
-  {
-    id: 'backup-5',
-    name: 'Full System Backup - 2024-01-10',
-    type: 'full',
-    size: '2.3 GB',
-    date: '2024-01-10 03:00:00',
-    status: 'completed',
-    description: 'Backup lengkap sistem mingguan',
-    downloadUrl: '#'
-  }
-]
+import { backupService, Backup, authService } from '@/lib/api'
+import { formatDateTime } from '@/lib/utils'
 
 export default function BackupRestorePage() {
-  const [backups, setBackups] = useState<BackupItem[]>(mockBackups)
+  const router = useRouter()
+  
+  // Data State
+  const [backups, setBackups] = useState<Backup[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  
+  // Settings State
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState(true)
+  const [encryptionEnabled, setEncryptionEnabled] = useState(true)
+  const [selectedBackupType, setSelectedBackupType] = useState<'full' | 'rps' | 'users' | 'system' | 'cpl' | 'mata_kuliah'>('full')
+  
+  // Progress State
   const [backupProgress, setBackupProgress] = useState(0)
   const [isBackingUp, setIsBackingUp] = useState(false)
   const [restoreProgress, setRestoreProgress] = useState(0)
   const [isRestoring, setIsRestoring] = useState(false)
-  const [selectedBackupType, setSelectedBackupType] = useState<'full' | 'rps' | 'users' | 'system'>('full')
-  const [autoBackupEnabled, setAutoBackupEnabled] = useState(true)
-  const [encryptionEnabled, setEncryptionEnabled] = useState(true)
-  const [showEncryptionKey, setShowEncryptionKey] = useState(false)
+  const [activeBackupId, setActiveBackupId] = useState<string | null>(null)
+
+  // Fetch backups
+  const fetchBackups = useCallback(async () => {
+    if (!authService.isAuthenticated()) {
+      router.push('/login')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await backupService.getAll({ limit: 50 })
+      
+      if (response.success && response.data) {
+        const backupList = Array.isArray(response.data) 
+          ? response.data 
+          : response.data.data || []
+        setBackups(backupList)
+      } else {
+        setBackups([])
+      }
+    } catch (err) {
+      console.error('Error fetching backups:', err)
+      setError('Gagal memuat data backup. Pastikan server API berjalan.')
+      // Use empty array as fallback
+      setBackups([])
+    } finally {
+      setLoading(false)
+    }
+  }, [router])
+
+  // Fetch settings
+  const fetchSettings = useCallback(async () => {
+    try {
+      const response = await backupService.getSettings()
+      if (response.success && response.data) {
+        setAutoBackupEnabled(response.data.auto_backup_enabled)
+        setEncryptionEnabled(response.data.encryption_enabled)
+      }
+    } catch (err) {
+      console.error('Error fetching backup settings:', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchBackups()
+    fetchSettings()
+  }, [fetchBackups, fetchSettings])
 
   const startBackup = async () => {
     setIsBackingUp(true)
     setBackupProgress(0)
+    setError(null)
 
-    // Simulate backup progress
-    for (let i = 0; i <= 100; i += 5) {
-      await new Promise(resolve => setTimeout(resolve, 100))
-      setBackupProgress(i)
+    try {
+      // Start backup via API
+      const response = await backupService.create({
+        type: selectedBackupType,
+        name: `${getBackupTypeName(selectedBackupType)} - ${new Date().toISOString().split('T')[0]}`,
+        description: getBackupDescription(selectedBackupType)
+      })
+
+      // Simulate progress (in real implementation, poll for status)
+      for (let i = 0; i <= 100; i += 10) {
+        await new Promise(resolve => setTimeout(resolve, 200))
+        setBackupProgress(i)
+      }
+
+      if (response.success && response.data) {
+        setBackups(prev => [response.data!, ...prev])
+        alert('Backup berhasil dibuat!')
+      } else {
+        throw new Error(response.message || 'Gagal membuat backup')
+      }
+    } catch (err) {
+      console.error('Error creating backup:', err)
+      setError(err instanceof Error ? err.message : 'Gagal membuat backup')
+      alert('Gagal membuat backup: ' + (err instanceof Error ? err.message : 'Unknown error'))
+    } finally {
+      setIsBackingUp(false)
+      setBackupProgress(0)
     }
-
-    // Add new backup to list
-    const newBackup: BackupItem = {
-      id: `backup-${Date.now()}`,
-      name: `${getBackupTypeName(selectedBackupType)} - ${new Date().toISOString().split('T')[0]}`,
-      type: selectedBackupType,
-      size: getEstimatedSize(selectedBackupType),
-      date: new Date().toISOString(),
-      status: 'completed',
-      description: getBackupDescription(selectedBackupType),
-      downloadUrl: '#'
-    }
-
-    setBackups(prev => [newBackup, ...prev])
-    setIsBackingUp(false)
-    setBackupProgress(0)
-    alert('Backup berhasil dibuat!')
   }
 
   const startRestore = async (backupId: string) => {
@@ -144,21 +143,82 @@ export default function BackupRestorePage() {
 
     setIsRestoring(true)
     setRestoreProgress(0)
+    setActiveBackupId(backupId)
+    setError(null)
 
-    // Simulate restore progress
-    for (let i = 0; i <= 100; i += 3) {
-      await new Promise(resolve => setTimeout(resolve, 150))
-      setRestoreProgress(i)
+    try {
+      // Call restore API
+      const response = await backupService.restore({
+        backup_id: backupId,
+        confirm: true
+      })
+
+      // Simulate progress
+      for (let i = 0; i <= 100; i += 5) {
+        await new Promise(resolve => setTimeout(resolve, 150))
+        setRestoreProgress(i)
+      }
+
+      if (response.success) {
+        alert('Restore berhasil dilakukan!')
+      } else {
+        throw new Error(response.message || 'Gagal melakukan restore')
+      }
+    } catch (err) {
+      console.error('Error restoring backup:', err)
+      setError(err instanceof Error ? err.message : 'Gagal melakukan restore')
+      alert('Gagal melakukan restore: ' + (err instanceof Error ? err.message : 'Unknown error'))
+    } finally {
+      setIsRestoring(false)
+      setRestoreProgress(0)
+      setActiveBackupId(null)
     }
-
-    setIsRestoring(false)
-    setRestoreProgress(0)
-    alert('Restore berhasil dilakukan!')
   }
 
-  const deleteBackup = (backupId: string) => {
-    if (confirm('Apakah Anda yakin ingin menghapus backup ini?')) {
-      setBackups(prev => prev.filter(b => b.id !== backupId))
+  const downloadBackup = async (backup: Backup) => {
+    try {
+      const blob = await backupService.download(backup.id)
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = backup.name || `backup-${backup.id}.zip`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (err) {
+      console.error('Error downloading backup:', err)
+      alert('Gagal mengunduh backup')
+    }
+  }
+
+  const deleteBackup = async (backupId: string) => {
+    if (!confirm('Apakah Anda yakin ingin menghapus backup ini?')) {
+      return
+    }
+
+    try {
+      const response = await backupService.delete(backupId)
+      if (response.success) {
+        setBackups(prev => prev.filter(b => b.id !== backupId))
+        alert('Backup berhasil dihapus')
+      } else {
+        throw new Error(response.message || 'Gagal menghapus backup')
+      }
+    } catch (err) {
+      console.error('Error deleting backup:', err)
+      alert('Gagal menghapus backup: ' + (err instanceof Error ? err.message : 'Unknown error'))
+    }
+  }
+
+  const updateSettings = async () => {
+    try {
+      await backupService.updateSettings({
+        auto_backup_enabled: autoBackupEnabled,
+        encryption_enabled: encryptionEnabled
+      })
+    } catch (err) {
+      console.error('Error updating settings:', err)
     }
   }
 
@@ -168,17 +228,9 @@ export default function BackupRestorePage() {
       case 'rps': return 'RPS Data Backup'
       case 'users': return 'User Management Backup'
       case 'system': return 'System Configuration Backup'
+      case 'cpl': return 'CPL Data Backup'
+      case 'mata_kuliah': return 'Mata Kuliah Backup'
       default: return 'Backup'
-    }
-  }
-
-  const getEstimatedSize = (type: string) => {
-    switch (type) {
-      case 'full': return '2.5 GB'
-      case 'rps': return '160 MB'
-      case 'users': return '50 MB'
-      case 'system': return '15 MB'
-      default: return 'Unknown'
     }
   }
 
@@ -188,6 +240,8 @@ export default function BackupRestorePage() {
       case 'rps': return 'Backup data RPS dan dokumen terkait'
       case 'users': return 'Backup data pengguna, roles, dan permissions'
       case 'system': return 'Backup konfigurasi sistem dan pengaturan aplikasi'
+      case 'cpl': return 'Backup data CPL dan mapping'
+      case 'mata_kuliah': return 'Backup data mata kuliah dan penugasan'
       default: return 'Backup data sistem'
     }
   }
@@ -200,6 +254,8 @@ export default function BackupRestorePage() {
         return <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Gagal</Badge>
       case 'in_progress':
         return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Proses</Badge>
+      case 'pending':
+        return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">Menunggu</Badge>
       default:
         return <Badge variant="outline">Unknown</Badge>
     }
@@ -212,7 +268,7 @@ export default function BackupRestorePage() {
       case 'rps':
         return <FileText className="h-4 w-4 text-green-600" />
       case 'users':
-        return <Shield className="h-4 w-4 text-purple-600" />
+        return <Server className="h-4 w-4 text-purple-600" />
       case 'system':
         return <Settings className="h-4 w-4 text-orange-600" />
       default:
@@ -220,13 +276,26 @@ export default function BackupRestorePage() {
     }
   }
 
-  const totalBackupSize = backups.reduce((total, backup) => {
-    const size = parseFloat(backup.size.split(' ')[0])
-    const unit = backup.size.split(' ')[1]
-    if (unit === 'GB') return total + (size * 1024)
-    if (unit === 'MB') return total + size
-    return total
-  }, 0)
+  const formatSize = (bytes?: number) => {
+    if (!bytes) return '-'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  }
+
+  const totalBackupSize = backups.reduce((total, backup) => total + (backup.size || 0), 0)
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="ml-2">Memuat data backup...</span>
+        </div>
+      </DashboardLayout>
+    )
+  }
 
   return (
     <DashboardLayout>
@@ -241,16 +310,25 @@ export default function BackupRestorePage() {
           </div>
           
           <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={fetchBackups}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
             <Button variant="outline" size="sm">
               <History className="h-4 w-4 mr-2" />
               History
             </Button>
-            <Button variant="outline" size="sm">
-              <Settings className="h-4 w-4 mr-2" />
-              Settings
-            </Button>
           </div>
         </div>
+
+        {error && (
+          <Card className="border-red-200 bg-red-50">
+            <CardContent className="p-4 flex items-center gap-2 text-red-700">
+              <AlertCircle className="h-5 w-5" />
+              {error}
+            </CardContent>
+          </Card>
+        )}
 
         {/* System Status */}
         <div className="grid gap-6 md:grid-cols-3">
@@ -291,7 +369,7 @@ export default function BackupRestorePage() {
                   <Server className="h-5 w-5 text-orange-600" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-slate-900">{totalBackupSize.toFixed(1)} MB</p>
+                  <p className="text-2xl font-bold text-slate-900">{formatSize(totalBackupSize)}</p>
                   <p className="text-sm text-slate-600">Total Size</p>
                 </div>
               </div>
@@ -319,13 +397,15 @@ export default function BackupRestorePage() {
                     <select
                       id="backup-type"
                       value={selectedBackupType}
-                      onChange={(e) => setSelectedBackupType(e.target.value as any)}
+                      onChange={(e) => setSelectedBackupType(e.target.value as typeof selectedBackupType)}
                       className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="full">Full System Backup (~2.5 GB)</option>
-                      <option value="rps">RPS Data Only (~160 MB)</option>
-                      <option value="users">User Management (~50 MB)</option>
-                      <option value="system">System Config (~15 MB)</option>
+                      <option value="full">Full System Backup</option>
+                      <option value="rps">RPS Data Only</option>
+                      <option value="users">User Management</option>
+                      <option value="system">System Config</option>
+                      <option value="cpl">CPL Data</option>
+                      <option value="mata_kuliah">Mata Kuliah Data</option>
                     </select>
                   </div>
 
@@ -354,18 +434,13 @@ export default function BackupRestorePage() {
                           <p className="text-sm text-slate-600">Backup otomatis setiap minggu</p>
                         </div>
                         <button
-                          onClick={() => setAutoBackupEnabled(!autoBackupEnabled)}
-                          className={`
-                            relative w-11 h-6 rounded-full transition-colors
-                            ${autoBackupEnabled ? "bg-blue-600" : "bg-slate-200"}
-                          `}
+                          onClick={() => {
+                            setAutoBackupEnabled(!autoBackupEnabled)
+                            updateSettings()
+                          }}
+                          className={`relative w-11 h-6 rounded-full transition-colors ${autoBackupEnabled ? "bg-blue-600" : "bg-slate-200"}`}
                         >
-                          <span
-                            className={`
-                              absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform
-                              ${autoBackupEnabled ? "translate-x-5" : "translate-x-0"}
-                            `}
-                          />
+                          <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${autoBackupEnabled ? "translate-x-5" : "translate-x-0"}`} />
                         </button>
                       </div>
 
@@ -375,18 +450,13 @@ export default function BackupRestorePage() {
                           <p className="text-sm text-slate-600">Enkripsi backup dengan password</p>
                         </div>
                         <button
-                          onClick={() => setEncryptionEnabled(!encryptionEnabled)}
-                          className={`
-                            relative w-11 h-6 rounded-full transition-colors
-                            ${encryptionEnabled ? "bg-green-600" : "bg-slate-200"}
-                          `}
+                          onClick={() => {
+                            setEncryptionEnabled(!encryptionEnabled)
+                            updateSettings()
+                          }}
+                          className={`relative w-11 h-6 rounded-full transition-colors ${encryptionEnabled ? "bg-green-600" : "bg-slate-200"}`}
                         >
-                          <span
-                            className={`
-                              absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform
-                              ${encryptionEnabled ? "translate-x-5" : "translate-x-0"}
-                            `}
-                          />
+                          <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${encryptionEnabled ? "translate-x-5" : "translate-x-0"}`} />
                         </button>
                       </div>
                     </div>
@@ -426,13 +496,12 @@ export default function BackupRestorePage() {
                   disabled={isBackingUp || isRestoring}
                   className="flex items-center gap-2"
                 >
-                  <Download className="h-4 w-4" />
+                  {isBackingUp ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
                   {isBackingUp ? 'Membuat Backup...' : 'Mulai Backup'}
-                </Button>
-                
-                <Button variant="outline">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Jadwalkan
                 </Button>
               </div>
             </div>
@@ -450,158 +519,74 @@ export default function BackupRestorePage() {
               Daftar backup yang telah dibuat
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="border-b bg-slate-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-slate-600">Backup</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-slate-600">Jenis</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-slate-600">Size</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-slate-600">Tanggal</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-slate-600">Status</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-slate-600">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {backups.map((backup) => (
-                    <tr key={backup.id} className="hover:bg-slate-50">
-                      <td className="px-6 py-4">
-                        <div className="flex items-start gap-3">
-                          <div className="p-2 bg-slate-100 rounded-lg">
-                            {getTypeIcon(backup.type)}
-                          </div>
-                          <div>
-                            <p className="font-medium text-slate-900">{backup.name}</p>
-                            <p className="text-sm text-slate-600">{backup.description}</p>
-                          </div>
-                        </div>
-                      </td>
-                      
-                      <td className="px-6 py-4">
-                        <Badge variant="outline" className="capitalize">
-                          {backup.type.replace('_', ' ')}
-                        </Badge>
-                      </td>
-                      
-                      <td className="px-6 py-4">
-                        <span className="font-medium text-slate-900">{backup.size}</span>
-                      </td>
-                      
-                      <td className="px-6 py-4">
-                        <div className="text-sm">
-                          <p className="text-slate-900">
-                            {new Date(backup.date).toLocaleDateString('id-ID')}
-                          </p>
-                          <p className="text-slate-600">
-                            {new Date(backup.date).toLocaleTimeString('id-ID')}
-                          </p>
-                        </div>
-                      </td>
-                      
-                      <td className="px-6 py-4">
-                        {getStatusBadge(backup.status)}
-                      </td>
-                      
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          {backup.downloadUrl && backup.status === 'completed' && (
-                            <Button size="sm" variant="outline" title="Download backup">
-                              <Download className="h-4 w-4" />
-                            </Button>
-                          )}
-                          
-                          {backup.status === 'completed' && (
-                            <Button 
-                              size="sm" 
-                              variant="outline"
-                              onClick={() => startRestore(backup.id)}
-                              disabled={isRestoring || isBackingUp}
-                              title="Restore dari backup ini"
-                            >
-                              <Upload className="h-4 w-4" />
-                            </Button>
-                          )}
-                          
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => deleteBackup(backup.id)}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            title="Hapus backup"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Upload Backup */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <CloudUpload className="h-5 w-5 text-purple-600" />
-              Upload & Restore
-            </CardTitle>
-            <CardDescription>
-              Upload file backup untuk di-restore
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-6">
-            <div className="space-y-4">
-              <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-slate-400 transition-colors">
-                <Upload className="h-12 w-12 text-slate-400 mx-auto mb-4" />
-                <p className="text-lg font-medium text-slate-900 mb-2">
-                  Drop file backup di sini
-                </p>
-                <p className="text-slate-600 mb-4">
-                  atau klik untuk pilih file
-                </p>
-                <Button variant="outline" asChild>
-                  <label className="cursor-pointer">
-                    Pilih File
-                    <input type="file" accept=".zip,.sql,.bak" className="hidden" />
-                  </label>
-                </Button>
-                <p className="text-xs text-slate-500 mt-2">
-                  Format yang didukung: .zip, .sql, .bak (maksimal 5GB)
-                </p>
+          <CardContent>
+            {backups.length === 0 ? (
+              <div className="text-center py-12">
+                <Archive className="h-12 w-12 text-slate-400 mx-auto mb-4" />
+                <p className="text-slate-600">Belum ada backup</p>
+                <p className="text-sm text-slate-500 mt-1">Buat backup pertama Anda</p>
               </div>
-
-              {encryptionEnabled && (
-                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <div className="flex items-start gap-3">
-                    <Lock className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="font-medium text-yellow-900 mb-2">
-                        Password Enkripsi
-                      </p>
-                      <div className="flex gap-2">
-                        <Input
-                          type={showEncryptionKey ? 'text' : 'password'}
-                          placeholder="Masukkan password dekripsi"
-                          className="flex-1"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowEncryptionKey(!showEncryptionKey)}
-                        >
-                          {showEncryptionKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </Button>
+            ) : (
+              <div className="space-y-4">
+                {backups.map(backup => (
+                  <div 
+                    key={backup.id}
+                    className="flex items-center justify-between p-4 border border-slate-200 rounded-lg hover:bg-slate-50"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="p-2 bg-slate-100 rounded-lg">
+                        {getTypeIcon(backup.type)}
+                      </div>
+                      <div>
+                        <p className="font-medium text-slate-900">{backup.name}</p>
+                        <div className="flex items-center gap-3 text-sm text-slate-600">
+                          <span>{backup.size_formatted || formatSize(backup.size)}</span>
+                          <span>•</span>
+                          <span>{formatDateTime(backup.created_at)}</span>
+                        </div>
                       </div>
                     </div>
+
+                    <div className="flex items-center gap-3">
+                      {getStatusBadge(backup.status)}
+                      
+                      {backup.status === 'completed' && (
+                        <>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => downloadBackup(backup)}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => startRestore(backup.id)}
+                            disabled={isRestoring}
+                          >
+                            {isRestoring && activeBackupId === backup.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Upload className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </>
+                      )}
+                      
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => deleteBackup(backup.id)}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

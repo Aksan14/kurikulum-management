@@ -144,9 +144,14 @@ export default function DosenProfilePage() {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="flex flex-col items-center gap-4">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-muted-foreground">Memuat profil...</p>
+          <div className="text-center space-y-4">
+            <div className="flex justify-center">
+              <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+            </div>
+            <div>
+              <p className="text-slate-700 font-medium">Memuat profil Anda...</p>
+              <p className="text-sm text-slate-500 mt-1">Tunggu sebentar</p>
+            </div>
           </div>
         </div>
       </DashboardLayout>

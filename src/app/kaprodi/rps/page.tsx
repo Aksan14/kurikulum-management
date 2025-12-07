@@ -56,6 +56,7 @@ const statusConfig = {
   approved: { label: 'Disetujui', variant: 'success' as const, icon: CheckCircle, color: 'text-emerald-600 bg-emerald-100' },
   rejected: { label: 'Ditolak', variant: 'danger' as const, icon: XCircle, color: 'text-red-600 bg-red-100' },
   published: { label: 'Published', variant: 'info' as const, icon: FileText, color: 'text-blue-600 bg-blue-100' },
+  revision: { label: 'Perlu Revisi', variant: 'warning' as const, icon: AlertCircle, color: 'text-orange-600 bg-orange-100' },
 }
 
 export default function KaprodiRPSPage() {
