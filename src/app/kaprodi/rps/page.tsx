@@ -46,7 +46,7 @@ import {
   MessageSquare,
   Loader2
 } from "lucide-react"
-import { rpsService, RPS, authService } from "@/lib/api"
+import { rpsService, RPS, authService, notificationService } from "@/lib/api"
 import { cn, formatDateTime } from "@/lib/utils"
 import Link from "next/link"
 
@@ -69,7 +69,7 @@ export default function KaprodiRPSPage() {
   const [activeTab, setActiveTab] = useState('all')
   const [showReviewDialog, setShowReviewDialog] = useState(false)
   const [selectedRPS, setSelectedRPS] = useState<RPS | null>(null)
-  const [reviewAction, setReviewAction] = useState<'approve' | 'reject'>('approve')
+  const [reviewAction, setReviewAction] = useState<'approve' | 'reject' | 'request-revision'>('approve')
   const [reviewNotes, setReviewNotes] = useState('')
   const [isReviewing, setIsReviewing] = useState(false)
 
@@ -126,7 +126,7 @@ export default function KaprodiRPSPage() {
 
   const filteredRPS = getFilteredRPS()
 
-  const handleReview = (rps: RPS, action: 'approve' | 'reject') => {
+  const handleReview = (rps: RPS, action: 'approve' | 'reject' | 'request-revision') => {
     setSelectedRPS(rps)
     setReviewAction(action)
     setReviewNotes('')
@@ -135,7 +135,7 @@ export default function KaprodiRPSPage() {
 
   const submitReview = async () => {
     if (!selectedRPS) return
-    if (reviewAction === 'reject' && !reviewNotes.trim()) {
+    if ((reviewAction === 'reject' || reviewAction === 'request-revision') && !reviewNotes.trim()) {
       alert('Mohon berikan catatan revisi')
       return
     }
@@ -144,8 +144,49 @@ export default function KaprodiRPSPage() {
       setIsReviewing(true)
       if (reviewAction === 'approve') {
         await rpsService.approve(selectedRPS.id, { review_notes: reviewNotes })
-      } else {
-        await rpsService.reject(selectedRPS.id, { review_notes: reviewNotes })
+        // Create notification for dosen
+        try {
+          await notificationService.create({
+            user_id: selectedRPS.dosen_id,
+            title: 'RPS Disetujui',
+            message: `RPS untuk mata kuliah ${selectedRPS.mata_kuliah_nama} telah disetujui oleh Kaprodi${reviewNotes ? `: ${reviewNotes}` : ''}`,
+            type: 'approval',
+            related_id: selectedRPS.id,
+            related_type: 'rps'
+          })
+        } catch (notifErr) {
+          console.error('Error creating approval notification:', notifErr)
+        }
+      } else if (reviewAction === 'reject') {
+        await rpsService.reject(selectedRPS.id, { alasan: reviewNotes })
+        // Create notification for dosen
+        try {
+          await notificationService.create({
+            user_id: selectedRPS.dosen_id,
+            title: 'RPS Ditolak',
+            message: `RPS untuk mata kuliah ${selectedRPS.mata_kuliah_nama} telah ditolak oleh Kaprodi. Alasan: ${reviewNotes}`,
+            type: 'rejection',
+            related_id: selectedRPS.id,
+            related_type: 'rps'
+          })
+        } catch (notifErr) {
+          console.error('Error creating rejection notification:', notifErr)
+        }
+      } else if (reviewAction === 'request-revision') {
+        await rpsService.requestRevision(selectedRPS.id, { catatan: reviewNotes })
+        // Create notification for dosen
+        try {
+          await notificationService.create({
+            user_id: selectedRPS.dosen_id,
+            title: 'Revisi RPS Diminta',
+            message: `Kaprodi meminta revisi RPS untuk mata kuliah ${selectedRPS.mata_kuliah_nama}. Catatan: ${reviewNotes}`,
+            type: 'rejection', // Using rejection type for revision requests
+            related_id: selectedRPS.id,
+            related_type: 'rps'
+          })
+        } catch (notifErr) {
+          console.error('Error creating revision notification:', notifErr)
+        }
       }
       await fetchRPS()
       setShowReviewDialog(false)
@@ -276,23 +317,16 @@ export default function KaprodiRPSPage() {
                       )}>
                         <StatusIcon className="h-7 w-7" />
                       </div>
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-lg font-semibold text-slate-900">{rps.mata_kuliah_nama}</h3>
+                        <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg font-semibold text-slate-900">ID: {rps.id}</h3>
                           <Badge variant={status.variant}>{status.label}</Badge>
                         </div>
-                        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                          <span className="font-mono">{rps.kode_mk}</span>
-                          <span>•</span>
-                          <span>{rps.sks} SKS</span>
-                          <span>•</span>
-                          <span>Semester {rps.semester}</span>
-                          <span>•</span>
-                          <span>{rps.tahun_akademik}</span>
-                        </div>
-                        <p className="text-sm text-slate-600">
-                          Dosen: <span className="font-medium">{rps.dosen_nama}</span>
-                        </p>
+                        {rps.deskripsi_mk ? (
+                          <p className="text-sm text-slate-600 mt-1">{rps.deskripsi_mk}</p>
+                        ) : (
+                          <p className="text-sm text-slate-400 mt-1">-</p>
+                        )}
                         {rps.status === 'rejected' && rps.review_notes && (
                           <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3">
                             <div className="flex items-start gap-2">
@@ -319,6 +353,14 @@ export default function KaprodiRPSPage() {
                           >
                             <XCircle className="h-4 w-4 text-red-500" />
                             Tolak
+                          </Button>
+                          <Button 
+                            variant="warning" 
+                            size="sm"
+                            onClick={() => handleReview(rps, 'request-revision')}
+                          >
+                            <AlertCircle className="h-4 w-4 text-orange-500" />
+                            Revisi
                           </Button>
                           <Button 
                             variant="success" 
@@ -349,6 +391,10 @@ export default function KaprodiRPSPage() {
                               <DropdownMenuItem onClick={() => handleReview(rps, 'approve')}>
                                 <CheckCircle className="mr-2 h-4 w-4 text-emerald-600" />
                                 Setujui RPS
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleReview(rps, 'request-revision')}>
+                                <AlertCircle className="mr-2 h-4 w-4 text-orange-600" />
+                                Minta Revisi
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handleReview(rps, 'reject')}>
                                 <XCircle className="mr-2 h-4 w-4 text-red-600" />
@@ -387,11 +433,14 @@ export default function KaprodiRPSPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>
-                {reviewAction === 'approve' ? 'Setujui RPS' : 'Tolak RPS'}
+                {reviewAction === 'approve' ? 'Setujui RPS' : 
+                 reviewAction === 'request-revision' ? 'Minta Revisi RPS' : 'Tolak RPS'}
               </DialogTitle>
               <DialogDescription>
                 {reviewAction === 'approve' 
                   ? `Anda akan menyetujui RPS ${selectedRPS?.mata_kuliah_nama}. RPS yang disetujui dapat digunakan untuk generate dokumen kurikulum.`
+                  : reviewAction === 'request-revision'
+                  ? `Anda akan meminta revisi RPS ${selectedRPS?.mata_kuliah_nama}. Mohon berikan catatan revisi yang jelas.`
                   : `Anda akan menolak RPS ${selectedRPS?.mata_kuliah_nama}. Mohon berikan catatan revisi.`}
               </DialogDescription>
             </DialogHeader>
@@ -403,6 +452,8 @@ export default function KaprodiRPSPage() {
                 id="notes"
                 placeholder={reviewAction === 'approve' 
                   ? "Tambahkan catatan jika diperlukan..."
+                  : reviewAction === 'request-revision'
+                  ? "Jelaskan bagian yang perlu direvisi dan saran perbaikan..."
                   : "Jelaskan alasan penolakan dan saran perbaikan..."}
                 className="mt-2"
                 rows={4}
@@ -415,13 +466,24 @@ export default function KaprodiRPSPage() {
                 Batal
               </Button>
               <Button 
-                variant={reviewAction === 'approve' ? 'success' : 'destructive'}
-                onClick={() => setShowReviewDialog(false)}
+                variant={reviewAction === 'approve' ? 'success' : reviewAction === 'request-revision' ? 'warning' : 'destructive'}
+                onClick={submitReview}
+                disabled={isReviewing}
               >
-                {reviewAction === 'approve' ? (
+                {isReviewing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Memproses...
+                  </>
+                ) : reviewAction === 'approve' ? (
                   <>
                     <CheckCircle className="h-4 w-4" />
                     Setujui
+                  </>
+                ) : reviewAction === 'request-revision' ? (
+                  <>
+                    <AlertCircle className="h-4 w-4" />
+                    Minta Revisi
                   </>
                 ) : (
                   <>

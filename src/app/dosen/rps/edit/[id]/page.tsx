@@ -144,6 +144,7 @@ interface SkalaPenilaianForm {
   is_lulus: boolean
 }
 
+
 export default function EditRPSPage() {
   const router = useRouter()
   const params = useParams()
@@ -216,17 +217,7 @@ export default function EditRPSPage() {
   const [deletedAnalisisIds, setDeletedAnalisisIds] = useState<string[]>([]) // Track deleted IDs for backend delete
   
   // Skala Penilaian state
-  const [skalaPenilaian, setSkalaPenilaian] = useState<SkalaPenilaianForm[]>([
-    { nilai_min: 85, nilai_max: 100, huruf_mutu: 'A', bobot_nilai: 4.0, is_lulus: true },
-    { nilai_min: 80, nilai_max: 84, huruf_mutu: 'A-', bobot_nilai: 3.7, is_lulus: true },
-    { nilai_min: 75, nilai_max: 79, huruf_mutu: 'B+', bobot_nilai: 3.3, is_lulus: true },
-    { nilai_min: 70, nilai_max: 74, huruf_mutu: 'B', bobot_nilai: 3.0, is_lulus: true },
-    { nilai_min: 65, nilai_max: 69, huruf_mutu: 'B-', bobot_nilai: 2.7, is_lulus: true },
-    { nilai_min: 60, nilai_max: 64, huruf_mutu: 'C+', bobot_nilai: 2.3, is_lulus: true },
-    { nilai_min: 55, nilai_max: 59, huruf_mutu: 'C', bobot_nilai: 2.0, is_lulus: true },
-    { nilai_min: 50, nilai_max: 54, huruf_mutu: 'D', bobot_nilai: 1.0, is_lulus: false },
-    { nilai_min: 0, nilai_max: 49, huruf_mutu: 'E', bobot_nilai: 0.0, is_lulus: false }
-  ])
+  const [skalaPenilaian, setSkalaPenilaian] = useState<SkalaPenilaianForm[]>([])
   const [deletedSkalaIds, setDeletedSkalaIds] = useState<string[]>([]) // Track deleted skala IDs for backend delete
   
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
@@ -537,7 +528,10 @@ export default function EditRPSPage() {
       // Load Skala Penilaian - fetch from dedicated endpoint
       let loadedSkala: SkalaPenilaianForm[] = []
       try {
+        console.log('🔍 Loading skala penilaian for RPS:', editRpsId)
         const skalaResponse = await rpsService.skalaPenilaian?.getAll(editRpsId)
+        console.log('📡 Skala penilaian API response:', skalaResponse)
+        
         if (skalaResponse?.success && skalaResponse.data && skalaResponse.data.length > 0) {
           loadedSkala = skalaResponse.data.map((s) => ({
             id: s.id,  // Include ID for update/delete
@@ -549,21 +543,32 @@ export default function EditRPSPage() {
           }))
           setSkalaPenilaian(loadedSkala)
           console.log('✅ Loaded', skalaResponse.data.length, 'skala penilaian from dedicated endpoint')
-        } else if (rps.skala_penilaian && rps.skala_penilaian.length > 0) {
-          // Fallback to RPS response data
-          loadedSkala = rps.skala_penilaian.map((s) => ({
-            id: s.id,  // Include ID for update/delete
-            nilai_min: s.nilai_min || 0,
-            nilai_max: s.nilai_max || 100,
-            huruf_mutu: s.huruf_mutu || "",
-            bobot_nilai: s.bobot_nilai || 0,
-            is_lulus: s.is_lulus !== undefined ? s.is_lulus : true
-          }))
-          setSkalaPenilaian(loadedSkala)
-          console.log('✅ Loaded', rps.skala_penilaian.length, 'skala penilaian from RPS response')
+        } else {
+          console.log('⚠️ No skala penilaian from dedicated endpoint, checking RPS response...')
+          console.log('📋 RPS skala_penilaian:', rps.skala_penilaian)
+          
+          if (rps.skala_penilaian && rps.skala_penilaian.length > 0) {
+            // Fallback to RPS response data
+            loadedSkala = rps.skala_penilaian.map((s) => ({
+              id: s.id,  // Include ID for update/delete
+              nilai_min: s.nilai_min || 0,
+              nilai_max: s.nilai_max || 100,
+              huruf_mutu: s.huruf_mutu || "",
+              bobot_nilai: s.bobot_nilai || 0,
+              is_lulus: s.is_lulus !== undefined ? s.is_lulus : true
+            }))
+            setSkalaPenilaian(loadedSkala)
+            console.log('✅ Loaded', rps.skala_penilaian.length, 'skala penilaian from RPS response')
+          } else {
+            console.log('❌ No skala penilaian data found, leaving empty')
+            // Leave empty if nothing is loaded
+            setSkalaPenilaian([])
+          }
         }
       } catch (err) {
-        console.error('Error loading skala penilaian:', err)
+        console.error('❌ Error loading skala penilaian:', err)
+        // Leave empty on error
+        setSkalaPenilaian([])
       }
       
       // Handle mata kuliah response
@@ -904,6 +909,82 @@ export default function EditRPSPage() {
       case "skala":
         if (skalaPenilaian.length === 0) {
           errors.push("Minimal harus ada 1 skala penilaian")
+        } else {
+          // Validate each skala penilaian entry
+          const skalaErrors: string[] = []
+
+          skalaPenilaian.forEach((skala, index) => {
+            const entryErrors: string[] = []
+
+            // Required fields
+            if (!skala.huruf_mutu?.trim()) {
+              entryErrors.push("Huruf mutu wajib diisi")
+            }
+            if (skala.nilai_min < 0 || skala.nilai_min > 100) {
+              entryErrors.push("Nilai minimum harus antara 0-100")
+            }
+            if (skala.nilai_max < 0 || skala.nilai_max > 100) {
+              entryErrors.push("Nilai maksimum harus antara 0-100")
+            }
+            if (skala.nilai_min >= skala.nilai_max) {
+              entryErrors.push("Nilai minimum harus lebih kecil dari nilai maksimum")
+            }
+            if (skala.bobot_nilai < 0 || skala.bobot_nilai > 4) {
+              entryErrors.push("Bobot nilai harus antara 0-4")
+            }
+
+            if (entryErrors.length > 0) {
+              skalaErrors.push(`Entry ${index + 1} (${skala.huruf_mutu || 'tanpa huruf'}): ${entryErrors.join(", ")}`)
+            }
+          })
+
+          // Check for overlapping ranges
+          const overlappingRanges: string[] = []
+          skalaPenilaian.forEach((skala, index) => {
+            skalaPenilaian.forEach((other, otherIndex) => {
+              if (index !== otherIndex) {
+                if (skala.nilai_min <= other.nilai_max && skala.nilai_max >= other.nilai_min) {
+                  const rangeDesc = `${skala.huruf_mutu || 'Entry ' + (index + 1)}(${skala.nilai_min}-${skala.nilai_max}) overlaps with ${other.huruf_mutu || 'Entry ' + (otherIndex + 1)}(${other.nilai_min}-${other.nilai_max})`
+                  if (!overlappingRanges.includes(rangeDesc)) {
+                    overlappingRanges.push(rangeDesc)
+                  }
+                }
+              }
+            })
+          })
+
+          if (overlappingRanges.length > 0) {
+            skalaErrors.push(`Rentang nilai overlap: ${overlappingRanges.join("; ")}`)
+          }
+
+          // Check for gaps in grading scale (optional warning)
+          const sortedRanges = [...skalaPenilaian].sort((a, b) => a.nilai_min - b.nilai_min)
+          const gaps: string[] = []
+          for (let i = 0; i < sortedRanges.length - 1; i++) {
+            const current = sortedRanges[i]
+            const next = sortedRanges[i + 1]
+            if (current.nilai_max + 1 < next.nilai_min) {
+              gaps.push(`${current.nilai_max + 1}-${next.nilai_min - 1}`)
+            }
+          }
+
+          if (gaps.length > 0) {
+            skalaErrors.push(`Peringatan: Ada gap dalam skala penilaian: ${gaps.join(", ")}`)
+          }
+
+          // Check if grading scale covers reasonable range
+          const minScore = Math.min(...skalaPenilaian.map(s => s.nilai_min))
+          const maxScore = Math.max(...skalaPenilaian.map(s => s.nilai_max))
+          if (maxScore < 60) {
+            skalaErrors.push("Skala penilaian sebaiknya mencapai minimal nilai 60")
+          }
+          if (minScore > 40) {
+            skalaErrors.push("Skala penilaian sebaiknya dimulai dari nilai yang lebih rendah (misal: 0)")
+          }
+
+          if (skalaErrors.length > 0) {
+            errors.push(...skalaErrors)
+          }
         }
         break
     }
@@ -1388,6 +1469,12 @@ export default function EditRPSPage() {
   const handleNextStep = async () => {
     setError(null)
     
+    // Special validation for skala tab
+    if (activeTab === 'skala' && !isSkalaPenilaianValid()) {
+      setError(`Skala penilaian belum valid:\n• Pastikan semua field terisi dengan benar\n• Periksa rentang nilai tidak overlap\n• Huruf mutu dan bobot nilai harus valid`)
+      return
+    }
+    
     // Validate current step
     const validation = validateCurrentStep()
     if (!validation.valid) {
@@ -1490,6 +1577,31 @@ export default function EditRPSPage() {
       skala: "Skala Penilaian"
     }
     return labels[tab] || tab
+  }
+
+  // Check if skala penilaian is valid for submission
+  const isSkalaPenilaianValid = (): boolean => {
+    if (skalaPenilaian.length === 0) return false
+
+    // Check each entry has required fields
+    for (const skala of skalaPenilaian) {
+      if (!skala.huruf_mutu?.trim()) return false
+      if (skala.nilai_min >= skala.nilai_max) return false
+      if (skala.bobot_nilai < 0 || skala.bobot_nilai > 4) return false
+    }
+
+    // Check for overlapping ranges
+    for (let i = 0; i < skalaPenilaian.length; i++) {
+      for (let j = i + 1; j < skalaPenilaian.length; j++) {
+        const skala1 = skalaPenilaian[i]
+        const skala2 = skalaPenilaian[j]
+        if (skala1.nilai_min <= skala2.nilai_max && skala1.nilai_max >= skala2.nilai_min) {
+          return false // Overlapping ranges
+        }
+      }
+    }
+
+    return true
   }
 
   // CPMK management
@@ -1829,11 +1941,12 @@ export default function EditRPSPage() {
             {tabOrder.map((tab) => {
               const hasError = stepErrors[tab]?.length > 0
               const isCompleted = completedSteps.includes(tab)
+              const isSkalaValid = tab === 'skala' ? isSkalaPenilaianValid() : true
               return (
                 <TabsTrigger 
                   key={tab} 
                   value={tab}
-                  className={`relative ${hasError ? 'text-red-600' : isCompleted ? 'text-green-600' : ''}`}
+                  className={`relative ${hasError ? 'text-red-600' : isCompleted ? 'text-green-600' : tab === 'skala' && !isSkalaValid ? 'text-orange-600' : ''}`}
                 >
                   {getTabLabel(tab)}
                   {isCompleted && !hasError && (
@@ -1841,6 +1954,9 @@ export default function EditRPSPage() {
                   )}
                   {hasError && (
                     <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
+                  )}
+                  {tab === 'skala' && !isSkalaValid && !hasError && (
+                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-orange-500 rounded-full" />
                   )}
                 </TabsTrigger>
               )
@@ -2965,6 +3081,37 @@ export default function EditRPSPage() {
 
           {/* Tab: Skala Penilaian */}
           <TabsContent value="skala" className="space-y-4">
+            {/* Validation Status */}
+            <Card className={`border-2 ${isSkalaPenilaianValid() ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center gap-2">
+                  {isSkalaPenilaianValid() ? (
+                    <>
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                      <span className="text-green-700 font-medium">Skala penilaian siap untuk disimpan</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-5 w-5 text-red-600" />
+                      <span className="text-red-700 font-medium">Skala penilaian belum lengkap - perbaiki sebelum menyimpan</span>
+                    </>
+                  )}
+                </div>
+                {!isSkalaPenilaianValid() && (
+                  <div className="mt-2 text-sm text-red-600">
+                    <strong>Persyaratan:</strong>
+                    <ul className="list-disc list-inside mt-1 space-y-1">
+                      <li>Minimal 1 skala penilaian</li>
+                      <li>Setiap entry harus memiliki huruf mutu</li>
+                      <li>Nilai minimum &lt; nilai maksimum</li>
+                      <li>Bobot nilai antara 0-4</li>
+                      <li>Tidak ada rentang nilai yang overlap</li>
+                    </ul>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">

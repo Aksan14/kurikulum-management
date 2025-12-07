@@ -189,17 +189,7 @@ export default function EditRPSPage() {
 
   const [rencanaTugas, setRencanaTugas] = useState<RencanaTugasForm[]>([])
   const [analisisKetercapaian, setAnalisisKetercapaian] = useState<AnalisisKetercapaianForm[]>([])
-  const [skalaPenilaian, setSkalaPenilaian] = useState<SkalaPenilaianForm[]>([
-    { nilai_min: 85, nilai_max: 100, huruf_mutu: 'A', bobot_nilai: 4.0, is_lulus: true },
-    { nilai_min: 80, nilai_max: 84, huruf_mutu: 'A-', bobot_nilai: 3.7, is_lulus: true },
-    { nilai_min: 75, nilai_max: 79, huruf_mutu: 'B+', bobot_nilai: 3.3, is_lulus: true },
-    { nilai_min: 70, nilai_max: 74, huruf_mutu: 'B', bobot_nilai: 3.0, is_lulus: true },
-    { nilai_min: 65, nilai_max: 69, huruf_mutu: 'B-', bobot_nilai: 2.7, is_lulus: true },
-    { nilai_min: 60, nilai_max: 64, huruf_mutu: 'C+', bobot_nilai: 2.3, is_lulus: true },
-    { nilai_min: 55, nilai_max: 59, huruf_mutu: 'C', bobot_nilai: 2.0, is_lulus: true },
-    { nilai_min: 50, nilai_max: 54, huruf_mutu: 'D', bobot_nilai: 1.0, is_lulus: false },
-    { nilai_min: 0, nilai_max: 49, huruf_mutu: 'E', bobot_nilai: 0.0, is_lulus: false }
-  ])
+  const [skalaPenilaian, setSkalaPenilaian] = useState<SkalaPenilaianForm[]>([])
   
   const [expandedWeek, setExpandedWeek] = useState<number | null>(1)
 

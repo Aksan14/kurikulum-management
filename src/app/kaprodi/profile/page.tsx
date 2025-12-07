@@ -154,7 +154,7 @@ export default function KaprodiProfilePage() {
           <Card className="w-full max-w-md">
             <CardContent className="pt-6">
               <div className="flex flex-col items-center gap-4 text-center">
-                <AlertCircle className="h-12 w-12 text-red-500" />
+                <AlertCircle className="h-12 w-12 text-destructive" />
                 <div>
                   <h3 className="font-semibold text-lg">Terjadi Kesalahan</h3>
                   <p className="text-muted-foreground">{error}</p>
@@ -212,7 +212,7 @@ export default function KaprodiProfilePage() {
         {error && (
           <Card className="border-red-200 bg-red-50">
             <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-2 text-red-600">
+              <div className="flex items-center gap-2 text-destructive">
                 <AlertCircle className="h-4 w-4" />
                 <span>{error}</span>
               </div>
@@ -223,8 +223,8 @@ export default function KaprodiProfilePage() {
         {success && (
           <Card className="border-green-200 bg-green-50">
             <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-2 text-green-600">
-                <Target className="h-4 w-4" />
+              <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                <Shield className="h-4 w-4" />
                 <span>{success}</span>
               </div>
             </CardContent>
@@ -237,7 +237,7 @@ export default function KaprodiProfilePage() {
               <div className="flex flex-col items-center text-center">
                 <div className="relative">
                   <Avatar className="h-32 w-32">
-                    <AvatarFallback className="text-2xl bg-purple-100 text-purple-700">
+                    <AvatarFallback className="text-2xl bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
                       {getInitials(currentUser?.nama || "Kaprodi")}
                     </AvatarFallback>
                   </Avatar>
@@ -255,7 +255,7 @@ export default function KaprodiProfilePage() {
                 </div>
                 <h2 className="mt-4 text-xl font-semibold text-foreground">{currentUser?.nama}</h2>
                 <p className="text-slate-600 dark:text-slate-400">Ketua Program Studi</p>
-                <Badge className="mt-2 bg-purple-100 text-purple-700">
+                <Badge className="mt-2 bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
                   <Shield className="mr-1 h-3 w-3" />
                   Kaprodi
                 </Badge>

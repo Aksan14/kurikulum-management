@@ -146,11 +146,11 @@ export default function DosenProfilePage() {
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="text-center space-y-4">
             <div className="flex justify-center">
-              <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+              <Loader2 className="h-12 w-12 animate-spin text-primary" />
             </div>
             <div>
-              <p className="text-slate-700 font-medium">Memuat profil Anda...</p>
-              <p className="text-sm text-slate-500 mt-1">Tunggu sebentar</p>
+              <p className="text-foreground font-medium">Memuat profil Anda...</p>
+              <p className="text-sm text-muted-foreground mt-1">Tunggu sebentar</p>
             </div>
           </div>
         </div>
@@ -165,7 +165,7 @@ export default function DosenProfilePage() {
           <Card className="w-full max-w-md">
             <CardContent className="pt-6">
               <div className="flex flex-col items-center gap-4 text-center">
-                <AlertCircle className="h-12 w-12 text-red-500" />
+                <AlertCircle className="h-12 w-12 text-destructive" />
                 <div>
                   <h3 className="font-semibold text-lg">Terjadi Kesalahan</h3>
                   <p className="text-muted-foreground">{error}</p>
@@ -225,7 +225,7 @@ export default function DosenProfilePage() {
         {error && (
           <Card className="border-red-200 bg-red-50">
             <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-2 text-red-600">
+              <div className="flex items-center gap-2 text-destructive">
                 <AlertCircle className="h-4 w-4" />
                 <span>{error}</span>
               </div>
@@ -236,7 +236,7 @@ export default function DosenProfilePage() {
         {success && (
           <Card className="border-green-200 bg-green-50">
             <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-2 text-green-600">
+              <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
                 <Target className="h-4 w-4" />
                 <span>{success}</span>
               </div>
@@ -252,7 +252,7 @@ export default function DosenProfilePage() {
               <div className="flex flex-col items-center text-center">
                 <div className="relative">
                   <Avatar className="h-32 w-32">
-                    <AvatarFallback className="text-2xl bg-primary/10">
+                    <AvatarFallback className="text-2xl bg-primary/10 text-primary">
                       {getInitials(currentUser?.nama || "Dosen")}
                     </AvatarFallback>
                   </Avatar>

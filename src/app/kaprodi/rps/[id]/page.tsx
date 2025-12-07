@@ -144,6 +144,8 @@ export default function DetailRPSKaprodiPage() {
   const [rpsData, setRpsData] = useState<RPS | null>(null)
   const [rejectReason, setRejectReason] = useState("")
   const [showRejectModal, setShowRejectModal] = useState(false)
+  const [revisionNotes, setRevisionNotes] = useState("")
+  const [showRevisionModal, setShowRevisionModal] = useState(false)
   
   const [mataKuliahList, setMataKuliahList] = useState<MataKuliah[]>([])
   const [cplList, setCplList] = useState<CPL[]>([])
@@ -193,17 +195,7 @@ export default function DetailRPSKaprodiPage() {
 
   const [rencanaTugas, setRencanaTugas] = useState<RencanaTugasForm[]>([])
   const [analisisKetercapaian, setAnalisisKetercapaian] = useState<AnalisisKetercapaianForm[]>([])
-  const [skalaPenilaian, setSkalaPenilaian] = useState<SkalaPenilaianForm[]>([
-    { nilai_min: 85, nilai_max: 100, huruf_mutu: 'A', bobot_nilai: 4.0, is_lulus: true },
-    { nilai_min: 80, nilai_max: 84, huruf_mutu: 'A-', bobot_nilai: 3.7, is_lulus: true },
-    { nilai_min: 75, nilai_max: 79, huruf_mutu: 'B+', bobot_nilai: 3.3, is_lulus: true },
-    { nilai_min: 70, nilai_max: 74, huruf_mutu: 'B', bobot_nilai: 3.0, is_lulus: true },
-    { nilai_min: 65, nilai_max: 69, huruf_mutu: 'B-', bobot_nilai: 2.7, is_lulus: true },
-    { nilai_min: 60, nilai_max: 64, huruf_mutu: 'C+', bobot_nilai: 2.3, is_lulus: true },
-    { nilai_min: 55, nilai_max: 59, huruf_mutu: 'C', bobot_nilai: 2.0, is_lulus: true },
-    { nilai_min: 50, nilai_max: 54, huruf_mutu: 'D', bobot_nilai: 1.0, is_lulus: false },
-    { nilai_min: 0, nilai_max: 49, huruf_mutu: 'E', bobot_nilai: 0.0, is_lulus: false }
-  ])
+  const [skalaPenilaian, setSkalaPenilaian] = useState<SkalaPenilaianForm[]>([])
   
   const [expandedWeek, setExpandedWeek] = useState<number | null>(1)
 
@@ -639,7 +631,7 @@ export default function DetailRPSKaprodiPage() {
       setError(null)
       setSuccessMessage(null)
       
-      const response = await rpsService.reject(rpsId, { catatan: rejectReason })
+      const response = await rpsService.reject(rpsId, { alasan: rejectReason })
       
       if (response.success) {
         setSuccessMessage('RPS berhasil ditolak!')
@@ -655,6 +647,40 @@ export default function DetailRPSKaprodiPage() {
     } catch (err) {
       console.error('Error rejecting RPS:', err)
       setError(err instanceof Error ? err.message : 'Terjadi kesalahan saat menolak RPS')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // Handle Request Revision RPS
+  const handleRequestRevision = async () => {
+    if (!rpsId) return
+    if (!revisionNotes.trim()) {
+      setError('Catatan revisi wajib diisi')
+      return
+    }
+    
+    try {
+      setSubmitting(true)
+      setError(null)
+      setSuccessMessage(null)
+      
+      const response = await rpsService.requestRevision(rpsId, { catatan: revisionNotes })
+      
+      if (response.success) {
+        setSuccessMessage('Permintaan revisi berhasil dikirim!')
+        setRpsData(prev => prev ? { ...prev, status: 'revision' } : null)
+        setShowRevisionModal(false)
+        setRevisionNotes("")
+        setTimeout(() => {
+          router.push('/kaprodi/rps')
+        }, 1500)
+      } else {
+        setError(response.message || 'Gagal meminta revisi RPS')
+      }
+    } catch (err) {
+      console.error('Error requesting revision RPS:', err)
+      setError(err instanceof Error ? err.message : 'Terjadi kesalahan saat meminta revisi RPS')
     } finally {
       setSubmitting(false)
     }
@@ -721,6 +747,14 @@ export default function DetailRPSKaprodiPage() {
                   disabled={submitting}
                 >
                   Tolak
+                </Button>
+                <Button 
+                  variant="outline"
+                  className="border-orange-300 text-orange-600 hover:bg-orange-50"
+                  onClick={() => setShowRevisionModal(true)}
+                  disabled={submitting}
+                >
+                  Minta Revisi
                 </Button>
                 <Button 
                   className="bg-green-600 hover:bg-green-700 text-white"
@@ -803,6 +837,53 @@ export default function DetailRPSKaprodiPage() {
                   >
                     {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                     Tolak RPS
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Modal Request Revision */}
+        {showRevisionModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <Card className="w-full max-w-md mx-4">
+              <CardHeader>
+                <CardTitle className="text-orange-600">Minta Revisi RPS</CardTitle>
+                <CardDescription>
+                  Berikan catatan revisi yang jelas agar dosen dapat memperbaiki RPS ini.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="revisionNotes" className="text-slate-700">Catatan Revisi *</Label>
+                  <Textarea
+                    id="revisionNotes"
+                    placeholder="Jelaskan bagian yang perlu direvisi dan saran perbaikan..."
+                    value={revisionNotes}
+                    onChange={(e) => setRevisionNotes(e.target.value)}
+                    rows={4}
+                    className="text-slate-900"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      setShowRevisionModal(false)
+                      setRevisionNotes("")
+                    }}
+                    disabled={submitting}
+                  >
+                    Batal
+                  </Button>
+                  <Button 
+                    className="bg-orange-600 hover:bg-orange-700 text-white"
+                    onClick={handleRequestRevision}
+                    disabled={submitting || !revisionNotes.trim()}
+                  >
+                    {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Minta Revisi
                   </Button>
                 </div>
               </CardContent>

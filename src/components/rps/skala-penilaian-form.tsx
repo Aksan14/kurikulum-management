@@ -45,9 +45,30 @@ export function SkalaPenilaianFormComponent({
 }: SkalaPenilaianFormProps) {
 
   const addSkalaPenilaian = () => {
+    // Find available range gaps
+    const sortedRanges = [...skalaPenilaian].sort((a, b) => a.nilai_min - b.nilai_min)
+    let suggestedMin = 0
+    let suggestedMax = 100
+
+    // Find the first gap in ranges
+    for (let i = 0; i < sortedRanges.length; i++) {
+      const current = sortedRanges[i]
+      if (suggestedMin < current.nilai_min) {
+        suggestedMax = current.nilai_min - 1
+        break
+      }
+      suggestedMin = Math.max(suggestedMin, current.nilai_max + 1)
+    }
+
+    // Ensure valid range
+    if (suggestedMin >= suggestedMax) {
+      suggestedMin = Math.max(0, Math.min(...skalaPenilaian.map(s => s.nilai_min)) - 10)
+      suggestedMax = suggestedMin + 9
+    }
+
     setSkalaPenilaian([...skalaPenilaian, {
-      nilai_min: 0,
-      nilai_max: 100,
+      nilai_min: Math.max(0, suggestedMin),
+      nilai_max: Math.min(100, suggestedMax),
       huruf_mutu: "",
       bobot_nilai: 0,
       is_lulus: false
@@ -64,17 +85,22 @@ export function SkalaPenilaianFormComponent({
     setSkalaPenilaian(updated)
   }
 
+  // Sort skala penilaian by nilai_min (descending for better display)
+  const sortedSkalaPenilaian = [...skalaPenilaian].sort((a, b) => b.nilai_min - a.nilai_min)
+
   const loadDefaultSkala = () => {
     setSkalaPenilaian([...DEFAULT_SKALA_PENILAIAN])
   }
 
-  // Validate ranges don't overlap
-  const hasOverlap = skalaPenilaian.some((skala, index) => {
+  // Validate ranges don't overlap (show warning only, don't prevent)
+  const overlappingRanges = skalaPenilaian.filter((skala, index) => {
     return skalaPenilaian.some((other, otherIndex) => {
       if (index === otherIndex) return false
       return (skala.nilai_min <= other.nilai_max && skala.nilai_max >= other.nilai_min)
     })
   })
+
+  const hasOverlap = overlappingRanges.length > 0
 
   return (
     <Card>
@@ -85,7 +111,14 @@ export function SkalaPenilaianFormComponent({
             <CardDescription>
               Definisikan skala penilaian untuk mata kuliah ini
               {hasOverlap && (
-                <span className="text-red-500 block">⚠️ Ada rentang nilai yang overlap!</span>
+                <span className="text-red-500 block">
+                  ⚠️ Ada {overlappingRanges.length} rentang nilai yang overlap!
+                  {overlappingRanges.length <= 2 && (
+                    <span className="block text-xs mt-1">
+                      Ranges: {overlappingRanges.map(r => `${r.huruf_mutu}(${r.nilai_min}-${r.nilai_max})`).join(', ')}
+                    </span>
+                  )}
+                </span>
               )}
             </CardDescription>
           </div>
@@ -125,15 +158,18 @@ export function SkalaPenilaianFormComponent({
                 </tr>
               </thead>
               <tbody>
-                {skalaPenilaian.map((skala, index) => (
-                  <tr key={index} className={skala.is_lulus ? "bg-green-50" : "bg-red-50"}>
+                {sortedSkalaPenilaian.map((skala, sortedIndex) => {
+                  // Find the original index for editing
+                  const originalIndex = skalaPenilaian.findIndex(s => s === skala)
+                  return (
+                  <tr key={originalIndex} className={skala.is_lulus ? "bg-green-50" : "bg-red-50"}>
                     <td className="border px-2 py-1">
                       <Input
                         type="number"
                         min={0}
                         max={100}
                         value={skala.nilai_min}
-                        onChange={(e) => updateSkalaPenilaian(index, 'nilai_min', parseInt(e.target.value) || 0)}
+                        onChange={(e) => updateSkalaPenilaian(originalIndex, 'nilai_min', parseInt(e.target.value) || 0)}
                         className="w-20"
                       />
                     </td>
@@ -143,14 +179,14 @@ export function SkalaPenilaianFormComponent({
                         min={0}
                         max={100}
                         value={skala.nilai_max}
-                        onChange={(e) => updateSkalaPenilaian(index, 'nilai_max', parseInt(e.target.value) || 0)}
+                        onChange={(e) => updateSkalaPenilaian(originalIndex, 'nilai_max', parseInt(e.target.value) || 0)}
                         className="w-20"
                       />
                     </td>
                     <td className="border px-2 py-1">
                       <Input
                         value={skala.huruf_mutu}
-                        onChange={(e) => updateSkalaPenilaian(index, 'huruf_mutu', e.target.value)}
+                        onChange={(e) => updateSkalaPenilaian(originalIndex, 'huruf_mutu', e.target.value)}
                         className="w-20"
                         placeholder="A/B/C"
                       />
@@ -162,20 +198,22 @@ export function SkalaPenilaianFormComponent({
                         min={0}
                         max={4}
                         value={skala.bobot_nilai}
-                        onChange={(e) => updateSkalaPenilaian(index, 'bobot_nilai', parseFloat(e.target.value) || 0)}
+                        onChange={(e) => updateSkalaPenilaian(originalIndex, 'bobot_nilai', parseFloat(e.target.value) || 0)}
                         className="w-20"
                       />
                     </td>
                     <td className="border px-2 py-1 text-center">
                       <Checkbox
                         checked={skala.is_lulus}
-                        onCheckedChange={(checked) => updateSkalaPenilaian(index, 'is_lulus', checked === true)}
+                        onCheckedChange={(checked) => updateSkalaPenilaian(originalIndex, 'is_lulus', checked === true)}
                       />
                     </td>
                     <td className="border px-2 py-1 text-center">
-                      <Button variant="ghost" size="sm" onClick={() => removeSkalaPenilaian(index)}>
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
+                      {skalaPenilaian.length > 1 && (
+                        <Button variant="ghost" size="sm" onClick={() => removeSkalaPenilaian(originalIndex)}>
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -189,16 +227,14 @@ export function SkalaPenilaianFormComponent({
           <div className="mt-4">
             <Label className="mb-2 block">Preview Skala Penilaian:</Label>
             <div className="flex flex-wrap gap-2">
-              {skalaPenilaian
-                .sort((a, b) => b.nilai_min - a.nilai_min)
-                .map((skala, index) => (
-                  <Badge
-                    key={index}
-                    variant={skala.is_lulus ? "default" : "danger"}
-                  >
-                    {skala.huruf_mutu} ({skala.nilai_min}-{skala.nilai_max}) = {skala.bobot_nilai.toFixed(2)}
-                  </Badge>
-                ))}
+              {sortedSkalaPenilaian.map((skala, index) => (
+                <Badge
+                  key={index}
+                  variant={skala.is_lulus ? "default" : "danger"}
+                >
+                  {skala.huruf_mutu} ({skala.nilai_min}-{skala.nilai_max}) = {skala.bobot_nilai.toFixed(2)}
+                </Badge>
+              ))}
             </div>
           </div>
         )}

@@ -32,7 +32,7 @@ import {
   Loader2,
   AlertCircle
 } from "lucide-react"
-import { rpsService, RPS, authService, mataKuliahService, MataKuliah } from "@/lib/api"
+import { rpsService, RPS, authService, mataKuliahService, MataKuliah, notificationService, usersService } from "@/lib/api"
 import { cn, formatDateTime } from "@/lib/utils"
 import Link from "next/link"
 
@@ -143,6 +143,34 @@ export default function DosenRPSPage() {
   const handleSubmitRPS = async (rpsId: string) => {
     try {
       await rpsService.submit(rpsId)
+      
+      // Get the RPS data to include in notification
+      const rpsResponse = await rpsService.getById(rpsId)
+      if (rpsResponse.success && rpsResponse.data) {
+        const rps = rpsResponse.data
+        
+        // Get all kaprodi users to notify them
+        try {
+          const kaprodiResponse = await usersService.getAll({ role: 'kaprodi', status: 'active' })
+          if (kaprodiResponse.success && kaprodiResponse.data?.data) {
+            // Create notifications for all kaprodi users
+            const notificationPromises = kaprodiResponse.data.data.map(kaprodi => 
+              notificationService.create({
+                user_id: kaprodi.id,
+                title: 'RPS Baru Menunggu Review',
+                message: `RPS untuk mata kuliah ${rps.mata_kuliah_nama} telah diajukan oleh ${rps.dosen_nama} dan menunggu review Anda.`,
+                type: 'document',
+                related_id: rps.id,
+                related_type: 'rps'
+              }).catch(err => console.error(`Error creating notification for kaprodi ${kaprodi.id}:`, err))
+            )
+            await Promise.all(notificationPromises)
+          }
+        } catch (notifErr) {
+          console.error('Error creating notifications for kaprodi:', notifErr)
+        }
+      }
+      
       await fetchRPS()
     } catch (err) {
       console.error("Error submitting RPS:", err)
@@ -359,6 +387,12 @@ export default function DosenRPSPage() {
                             <Edit className="h-4 w-4" />
                             Revisi
                           </Link>
+                        </Button>
+                      )}
+                      {rps.status === 'revision' && (
+                        <Button size="sm" onClick={() => handleSubmitRPS(rps.id)}>
+                          <Send className="h-4 w-4" />
+                          Kirim Kembali
                         </Button>
                       )}
                       <DropdownMenu>
