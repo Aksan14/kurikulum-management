@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/layout"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -23,7 +23,6 @@ import {
   AlertCircle,
   Search,
   Calendar,
-  FileText,
   Target,
   Loader2,
   ArrowRight,
@@ -31,22 +30,152 @@ import {
   Check,
   X
 } from "lucide-react"
-import Link from "next/link"
 import { cplAssignmentService, type CPLAssignment } from "@/lib/api/cpl-assignment"
 import { authService } from "@/lib/api/auth"
 import { formatDate } from "@/lib/utils"
+import { rpsService } from "@/lib/api"
 
 const statusConfig = {
   assigned: { label: 'Ditugaskan', color: 'bg-blue-100 text-blue-700 border-blue-200' },
   accepted: { label: 'Diterima', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
   rejected: { label: 'Ditolak', color: 'bg-red-100 text-red-700 border-red-200' },
   done: { label: 'Selesai', color: 'bg-green-100 text-green-700 border-green-200' },
-  cancelled: { label: 'Dibatalkan', color: 'bg-gray-100 text-gray-700 border-gray-200' }
+  cancelled: { label: 'Dibatalkan', color: 'bg-gray-100 text-gray-700 border-gray-200' },
+  mixed: { label: 'Bercampur', color: 'bg-purple-100 text-purple-700 border-purple-200' }
+}
+
+interface GroupedMataKuliahAssignment {
+  mataKuliahId: string
+  mataKuliah: string
+  deadline?: string
+  assignedAt: string
+  cpls: {
+    id: string
+    cplId: string | string[]
+    cplKode: string
+    cplJudul: string
+    cplDeskripsi?: string
+    status: 'assigned' | 'accepted' | 'rejected' | 'done' | 'cancelled' | 'mixed'
+    assignments: Array<{
+      id: string
+      status: 'assigned' | 'accepted' | 'rejected' | 'done' | 'cancelled'
+      comment?: string
+      rejectionReason?: string
+    }>
+  }[]
+  overallStatus: 'assigned' | 'accepted' | 'rejected' | 'done' | 'cancelled' | 'mixed'
+}
+
+function groupAssignmentsByMataKuliah(assignments: CPLAssignment[]): GroupedMataKuliahAssignment[] {
+  const groups = new Map<string, CPLAssignment[]>()
+
+  // Group by mata_kuliah_id
+  assignments.forEach(assignment => {
+    const key = assignment.mata_kuliah_id || 'unknown'
+    if (!groups.has(key)) {
+      groups.set(key, [])
+    }
+    groups.get(key)!.push(assignment)
+  })
+
+  return Array.from(groups.entries()).map(([mataKuliahId, groupAssignments]) => {
+    const first = groupAssignments[0]
+    const allStatuses = groupAssignments.map(a => a.status)
+    const uniqueStatuses = [...new Set(allStatuses)]
+
+    let overallStatus: GroupedMataKuliahAssignment['overallStatus']
+    if (uniqueStatuses.length === 1) {
+      overallStatus = uniqueStatuses[0]
+    } else {
+      overallStatus = 'mixed'
+    }
+
+    // Kumpulkan semua CPL unik untuk mata kuliah ini
+    const cplMap = new Map<string, {
+      id: string
+      cplId: string | string[]
+      cplKode: string
+      cplJudul: string
+      cplDeskripsi?: string
+      assignments: Array<{
+        id: string
+        status: 'assigned' | 'accepted' | 'rejected' | 'done' | 'cancelled'
+        comment?: string
+        rejectionReason?: string
+      }>
+    }>()
+
+    groupAssignments.forEach(a => {
+      console.log('Processing assignment:', a.id, 'cpl_ids:', a.cpl_ids, 'cpls:', a.cpls?.length)
+
+      // Struktur baru: banyak CPL di field cpls
+      if (a.cpl_ids && a.cpls && Array.isArray(a.cpl_ids) && Array.isArray(a.cpls)) {
+        console.log('✅ Processing new structure with cpl_ids and cpls arrays')
+
+        a.cpls.forEach(cpl => {
+          const cplKey = cpl.id
+
+          if (!cplMap.has(cplKey)) {
+            cplMap.set(cplKey, {
+              id: cplKey,
+              cplId: cpl.id,
+              cplKode: cpl.kode,
+              cplJudul: cpl.nama || cpl.deskripsi || `CPL ${cpl.kode}`,
+              cplDeskripsi: cpl.deskripsi,
+              assignments: []
+            })
+          }
+
+          cplMap.get(cplKey)!.assignments.push({
+            id: a.id,
+            status: a.status,
+            comment: a.comment,
+            rejectionReason: a.rejection_reason
+          })
+        })
+      }
+      // (opsional) struktur lama dengan single cpl kalau masih ada di tipe
+      // else if (a.cpl && a.cpl.kode) { ... }
+      else {
+        // Tidak ada data CPL untuk assignment ini → biarkan saja.
+        // Nanti di tampilan kita handle sebagai "Belum ada CPL (akan ditentukan)"
+        console.warn('⚠️ No CPL data for assignment:', a.id)
+      }
+    })
+
+    // Konversi map ke array dan tentukan status tiap CPL
+    const cpls = Array.from(cplMap.values()).map(cpl => {
+      const allAssignmentStatuses = cpl.assignments.map(ass => ass.status)
+      const uniqueAssignmentStatuses = [...new Set(allAssignmentStatuses)]
+
+      let cplOverallStatus: 'assigned' | 'accepted' | 'rejected' | 'done' | 'cancelled' | 'mixed'
+      if (uniqueAssignmentStatuses.length === 1) {
+        cplOverallStatus = uniqueAssignmentStatuses[0]
+      } else {
+        cplOverallStatus = 'mixed'
+      }
+
+      return {
+        ...cpl,
+        status: cplOverallStatus
+      }
+    })
+
+    return {
+      mataKuliahId,
+      mataKuliah: first.mata_kuliah || first.mata_kuliah_ref?.nama || 'Mata Kuliah Tidak Diketahui',
+      deadline: first.deadline,
+      assignedAt: first.assigned_at,
+      cpls,
+      overallStatus
+    }
+  })
 }
 
 export default function DosenAssignmentPage() {
   const router = useRouter()
   const [assignments, setAssignments] = useState<CPLAssignment[]>([])
+  const [groupedAssignments, setGroupedAssignments] = useState<GroupedMataKuliahAssignment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
@@ -60,44 +189,100 @@ export default function DosenAssignmentPage() {
 
   const fetchData = useCallback(async () => {
     if (!authService.isAuthenticated()) {
+      console.log('User not authenticated, redirecting to login')
       router.push('/login')
       return
     }
-    
+
+    const currentUser = authService.getCurrentUser()
+    if (!currentUser || currentUser.role !== 'dosen') {
+      console.log('User is not a dosen or not logged in properly:', currentUser)
+      setError('Akses ditolak. Halaman ini hanya untuk dosen.')
+      return
+    }
+
     try {
       setLoading(true)
       setError(null)
-      const response = await cplAssignmentService.getMy()
+      console.log('Fetching assignments for dosen:', currentUser.nama, 'ID:', currentUser.id)
+
+      const response = await cplAssignmentService.getAll({ 
+        dosen_id: currentUser.id, 
+        limit: 100,
+        include: 'cpls,mata_kuliah_ref'
+      })
       
+      console.log('API Response:', response)
+
       let data: CPLAssignment[] = []
-      if (response.data) {
+      if (response.success && response.data) {
         if (Array.isArray(response.data)) {
           data = response.data
         } else if (response.data.data && Array.isArray(response.data.data)) {
           data = response.data.data
+        } else if (response.data && typeof response.data === 'object' && !Array.isArray(response.data)) {
+          if ((response.data as any).assignments && Array.isArray((response.data as any).assignments)) {
+            data = (response.data as any).assignments
+          } else {
+            console.warn('Unexpected API response structure:', response.data)
+            setError('Format data dari server tidak sesuai')
+          }
+        } else {
+          console.warn('Unexpected API response structure:', response.data)
+          setError('Format data dari server tidak sesuai')
+        }
+      } else {
+        console.warn('API request failed:', response.message || 'Unknown error')
+        if (response.message) {
+          setError(`Server error: ${response.message}`)
+        } else {
+          setError('Gagal mengambil data dari server. Periksa koneksi internet Anda.')
         }
       }
-      
+
+      console.log('Final assignments data:', data)
       setAssignments(data)
+
+      const grouped = groupAssignmentsByMataKuliah(data)
+      console.log('Grouped assignments:', grouped)
+      setGroupedAssignments(grouped)
     } catch (err) {
       console.error('Error fetching assignments:', err)
-      setError(err instanceof Error ? err.message : 'Gagal memuat data tugas')
+      let errorMessage = 'Terjadi kesalahan saat memuat data tugas'
+
+      if (err instanceof Error) {
+        errorMessage = err.message
+        console.error('Error details:', err.stack)
+      }
+
+      setError(errorMessage)
+      setAssignments([])
+      setGroupedAssignments([])
     } finally {
       setLoading(false)
     }
   }, [router])
 
   useEffect(() => {
-    fetchData()
+    const timer = setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        fetchData()
+      }
+    }, 100)
+
+    return () => clearTimeout(timer)
   }, [fetchData])
 
-  const filteredAssignments = assignments.filter(assignment => {
+  const filteredAssignments = groupedAssignments.filter(assignment => {
     const searchLower = searchQuery.toLowerCase()
     const matchesSearch = 
-      assignment.cpl?.kode?.toLowerCase().includes(searchLower) ||
-      assignment.cpl?.judul?.toLowerCase().includes(searchLower) ||
-      assignment.mata_kuliah?.toLowerCase().includes(searchLower)
-    const matchesStatus = filterStatus === 'all' || assignment.status === filterStatus
+      assignment.mataKuliah.toLowerCase().includes(searchLower) ||
+      assignment.cpls.some(cpl => 
+        cpl.cplKode.toLowerCase().includes(searchLower) ||
+        cpl.cplJudul.toLowerCase().includes(searchLower)
+      )
+    const matchesStatus = filterStatus === 'all' || assignment.overallStatus === filterStatus || 
+      (filterStatus === 'mixed' && assignment.overallStatus === 'mixed')
     return matchesSearch && matchesStatus
   })
 
@@ -113,6 +298,26 @@ export default function DosenAssignmentPage() {
     setActionType(type)
     setComment("")
     setShowActionDialog(true)
+  }
+
+  const handleRedirectToRPS = async (assignment: CPLAssignment) => {
+    if (!assignment.mata_kuliah_id) {
+      alert("Mata kuliah ID tidak tersedia")
+      return
+    }
+
+    try {
+      const response = await rpsService.getByMataKuliah(assignment.mata_kuliah_id)
+      if (response.success && response.data?.data && response.data.data.length > 0) {
+        const rps = response.data.data[0]
+        router.push(`/dosen/rps/${rps.id}`)
+      } else {
+        alert("RPS belum dibuat untuk mata kuliah ini")
+      }
+    } catch (err) {
+      console.error("Error fetching RPS:", err)
+      alert("Gagal memuat RPS")
+    }
   }
 
   const handleAction = async () => {
@@ -139,6 +344,16 @@ export default function DosenAssignmentPage() {
     } finally {
       setActionLoading(false)
     }
+  }
+
+  // Helper untuk cari assignment by mata kuliah + status
+  const findAssignmentByCourseAndStatus = (
+    mataKuliahId: string,
+    status: CPLAssignment["status"]
+  ): CPLAssignment | undefined => {
+    return assignments.find(
+      (a) => a.mata_kuliah_id === mataKuliahId && a.status === status
+    )
   }
 
   if (loading) {
@@ -288,86 +503,172 @@ export default function DosenAssignmentPage() {
               </CardContent>
             </Card>
           ) : (
-            filteredAssignments.map((assignment) => (
-              <Card key={assignment.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between gap-4">
+            filteredAssignments.map((mataKuliahAssignment) => (
+              <Card key={mataKuliahAssignment.mataKuliahId} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-6">
+                  <div className="flex items-start justify-between gap-4 mb-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        <Badge className={statusConfig[assignment.status].color}>
-                          {statusConfig[assignment.status].label}
+                        <Badge className={
+                          mataKuliahAssignment.overallStatus === 'mixed' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                          statusConfig[mataKuliahAssignment.overallStatus]?.color || 'bg-gray-100 text-gray-700'
+                        }>
+                          {mataKuliahAssignment.overallStatus === 'mixed' ? 'Status Campuran' : 
+                           statusConfig[mataKuliahAssignment.overallStatus]?.label || mataKuliahAssignment.overallStatus}
                         </Badge>
-                        {assignment.cpl && (
-                          <Badge variant="outline" className="text-blue-600 border-blue-300">
-                            {assignment.cpl.kode}
-                          </Badge>
-                        )}
                       </div>
-                      <h3 className="font-semibold text-slate-900">
-                        {assignment.cpl?.judul || `Tugas CPL ${assignment.cpl_id}`}
+                      <h3 className="text-xl font-semibold text-slate-900 mb-2">
+                        {mataKuliahAssignment.mataKuliah}
                       </h3>
-                      {assignment.cpl?.deskripsi && (
-                        <p className="text-sm text-slate-600 mt-1 line-clamp-2">
-                          {assignment.cpl.deskripsi}
-                        </p>
-                      )}
-                      {assignment.mata_kuliah && (
-                        <p className="text-sm text-slate-500 mt-1">
-                          <FileText className="h-4 w-4 inline mr-1" />
-                          Mata Kuliah: {assignment.mata_kuliah}
-                        </p>
-                      )}
-                      <div className="flex items-center gap-4 mt-3 text-sm text-slate-500">
+                      <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500 mb-4">
                         <span className="flex items-center gap-1">
                           <Calendar className="h-4 w-4" />
-                          Ditugaskan: {formatDate(assignment.assigned_at)}
+                          Ditugaskan: {formatDate(mataKuliahAssignment.assignedAt)}
                         </span>
-                        {assignment.deadline && (
+                        {mataKuliahAssignment.deadline && (
                           <span className="flex items-center gap-1 text-red-500">
                             <Clock className="h-4 w-4" />
-                            Deadline: {formatDate(assignment.deadline)}
+                            Deadline: {formatDate(mataKuliahAssignment.deadline)}
                           </span>
                         )}
                       </div>
                     </div>
-                    <div className="flex flex-col gap-2">
-                      {assignment.status === 'assigned' && (
+                  </div>
+
+                  <div className="space-y-3">
+                    <h4 className="font-medium text-slate-700">CPL yang terkait :</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {mataKuliahAssignment.cpls.length > 0 ? (
+                        mataKuliahAssignment.cpls.map((cpl) => (
+                          <Badge key={cpl.id} variant="outline" className="text-blue-600 border-blue-300">
+                            {cpl.cplKode}
+                          </Badge>
+                        ))
+                      ) : (
+                        <Badge variant="outline" className="text-slate-500 border-slate-300">
+                          Belum ada CPL (akan ditentukan)
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2 mt-4">
+                      {mataKuliahAssignment.overallStatus === 'assigned' && (
                         <>
-                          <Button 
-                            size="sm" 
-                            onClick={() => openActionDialog(assignment, 'accept')}
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              // 1. coba pakai CPL kalau ada
+                              let target: CPLAssignment | undefined
+
+                              if (mataKuliahAssignment.cpls.length > 0) {
+                                const firstCpl = mataKuliahAssignment.cpls[0]
+                                const pending = firstCpl.assignments.filter(a => a.status === 'assigned')
+                                if (pending.length > 0) {
+                                  target = assignments.find(a => a.id === pending[0].id)
+                                }
+                              }
+
+                              // 2. fallback: cari assignment by mata kuliah
+                              if (!target) {
+                                target = findAssignmentByCourseAndStatus(
+                                  mataKuliahAssignment.mataKuliahId,
+                                  "assigned"
+                                )
+                              }
+
+                              if (target) {
+                                openActionDialog(target, 'accept')
+                              } else {
+                                alert("Tugas untuk mata kuliah ini tidak ditemukan.")
+                              }
+                            }}
                             className="bg-emerald-600 hover:bg-emerald-700"
                           >
                             <Check className="h-4 w-4 mr-1" />
                             Terima
                           </Button>
-                          <Button 
-                            variant="outline" 
+                          <Button
                             size="sm"
-                            onClick={() => openActionDialog(assignment, 'reject')}
-                            className="text-red-600 border-red-300 hover:bg-red-50"
+                            variant="outline"
+                            onClick={() => {
+                              let target: CPLAssignment | undefined
+
+                              if (mataKuliahAssignment.cpls.length > 0) {
+                                const firstCpl = mataKuliahAssignment.cpls[0]
+                                const pending = firstCpl.assignments.filter(a => a.status === 'assigned')
+                                if (pending.length > 0) {
+                                  target = assignments.find(a => a.id === pending[0].id)
+                                }
+                              }
+
+                              if (!target) {
+                                target = findAssignmentByCourseAndStatus(
+                                  mataKuliahAssignment.mataKuliahId,
+                                  "assigned"
+                                )
+                              }
+
+                              if (target) {
+                                openActionDialog(target, 'reject')
+                              } else {
+                                alert("Tugas untuk mata kuliah ini tidak ditemukan.")
+                              }
+                            }}
+                            className="border-red-300 text-red-600 hover:bg-red-50"
                           >
                             <X className="h-4 w-4 mr-1" />
                             Tolak
                           </Button>
                         </>
                       )}
-                      {assignment.status === 'accepted' && (
-                        <Button 
-                          size="sm" 
-                          onClick={() => openActionDialog(assignment, 'complete')}
+
+                      {mataKuliahAssignment.overallStatus === 'accepted' && (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            const accepted = findAssignmentByCourseAndStatus(
+                              mataKuliahAssignment.mataKuliahId,
+                              "accepted"
+                            )
+                            if (accepted) {
+                              handleRedirectToRPS(accepted)
+                            } else {
+                              alert("Tugas yang sudah diterima tidak ditemukan.")
+                            }
+                          }}
+                          className="bg-blue-600 hover:bg-blue-700"
+                        >
+                          <ArrowRight className="h-4 w-4 mr-1" />
+                          Buat RPS
+                        </Button>
+                      )}
+
+                      {mataKuliahAssignment.overallStatus === 'done' && (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            const accepted = findAssignmentByCourseAndStatus(
+                              mataKuliahAssignment.mataKuliahId,
+                              "accepted"
+                            )
+                            if (accepted) {
+                              openActionDialog(accepted, 'complete')
+                            } else {
+                              const anyAssigned = findAssignmentByCourseAndStatus(
+                                mataKuliahAssignment.mataKuliahId,
+                                "assigned"
+                              )
+                              if (anyAssigned) {
+                                openActionDialog(anyAssigned, 'complete')
+                              } else {
+                                alert("Tidak ada tugas yang bisa ditandai selesai.")
+                              }
+                            }
+                          }}
                           className="bg-green-600 hover:bg-green-700"
                         >
                           <CheckCircle className="h-4 w-4 mr-1" />
                           Selesai
-                        </Button>
-                      )}
-                      {assignment.cpl_id && (
-                        <Button variant="outline" size="sm" asChild>
-                          <Link href={`/dosen/cpl/${assignment.cpl_id}`}>
-                            <ArrowRight className="h-4 w-4 mr-1" />
-                            Detail CPL
-                          </Link>
                         </Button>
                       )}
                     </div>

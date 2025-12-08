@@ -23,6 +23,7 @@ import {
 import { notificationService, type Notification } from "@/lib/api/notifications"
 import { authService } from "@/lib/api/auth"
 import { formatDate } from "@/lib/utils"
+import { useNotifications } from "@/hooks"
 
 // Map API notification type to display type
 type DisplayType = 'success' | 'warning' | 'info' | 'error'
@@ -46,6 +47,7 @@ const mapNotificationType = (type: Notification['type']): DisplayType => {
 
 export default function DosenNotificationsPage() {
   const router = useRouter()
+  const { refreshUnreadCount } = useNotifications()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -96,6 +98,7 @@ export default function DosenNotificationsPage() {
       setNotifications(prev => 
         prev.map(n => n.id === id ? { ...n, is_read: true, read_at: new Date().toISOString() } : n)
       )
+      refreshUnreadCount()
     } catch (err) {
       console.error('Error marking as read:', err)
     } finally {
@@ -108,6 +111,7 @@ export default function DosenNotificationsPage() {
       setActionLoading('all')
       await notificationService.markAllAsRead()
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true, read_at: new Date().toISOString() })))
+      refreshUnreadCount()
     } catch (err) {
       console.error('Error marking all as read:', err)
     } finally {

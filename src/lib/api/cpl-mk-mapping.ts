@@ -52,13 +52,13 @@ export const cplMKMappingService = {
   },
 
   // Get mappings by CPL ID
-  getByCPL: async (cplId: string): Promise<ApiResponse<CPLMKMapping[]>> => {
-    return api.get<CPLMKMapping[]>(`/cpl-mk-mappings/cpl/${cplId}`);
+  getByCPL: async (cplId: string): Promise<ApiResponse<PaginatedResponse<CPLMKMapping>>> => {
+    return api.get<PaginatedResponse<CPLMKMapping>>('/cpl-mk-mappings', { cpl_id: cplId });
   },
 
   // Get mappings by Mata Kuliah ID
-  getByMK: async (mkId: string): Promise<ApiResponse<CPLMKMapping[]>> => {
-    return api.get<CPLMKMapping[]>(`/cpl-mk-mappings/mk/${mkId}`);
+  getByMK: async (mkId: string): Promise<ApiResponse<PaginatedResponse<CPLMKMapping>>> => {
+    return api.get<PaginatedResponse<CPLMKMapping>>('/cpl-mk-mappings', { mata_kuliah_id: mkId });
   },
 
   // Create new mapping

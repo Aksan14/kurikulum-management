@@ -61,6 +61,7 @@ interface DisplayAssignment {
   dosenNama: string
   dosenEmail: string
   mataKuliah: string
+  mataKuliahId: string
   status: 'assigned' | 'accepted' | 'rejected' | 'done' | 'cancelled'
   assignedAt: string
   acceptedAt?: string
@@ -70,9 +71,76 @@ interface DisplayAssignment {
   rejectionReason?: string
 }
 
+interface GroupedAssignment {
+  mataKuliahId: string
+  mataKuliah: string
+  dosenId: string
+  dosenNama: string
+  dosenEmail: string
+  deadline?: string
+  assignedAt: string
+  cpls: {
+    id: string
+    cplId: string
+    cplKode: string
+    cplNama: string
+    status: 'assigned' | 'accepted' | 'rejected' | 'done' | 'cancelled'
+    comment?: string
+    rejectionReason?: string
+  }[]
+  overallStatus: 'assigned' | 'accepted' | 'rejected' | 'done' | 'cancelled' | 'mixed'
+}
+
+function groupAssignmentsByMataKuliah(assignments: DisplayAssignment[]): GroupedAssignment[] {
+  const groups = new Map<string, DisplayAssignment[]>()
+
+  // Group by mata_kuliah_id + dosen_id
+  assignments.forEach(assignment => {
+    const key = `${assignment.mataKuliahId}-${assignment.dosenId}`
+    if (!groups.has(key)) {
+      groups.set(key, [])
+    }
+    groups.get(key)!.push(assignment)
+  })
+
+  return Array.from(groups.entries()).map(([key, groupAssignments]) => {
+    const first = groupAssignments[0]
+    const allStatuses = groupAssignments.map(a => a.status)
+    const uniqueStatuses = [...new Set(allStatuses)]
+
+    let overallStatus: GroupedAssignment['overallStatus']
+    if (uniqueStatuses.length === 1) {
+      overallStatus = uniqueStatuses[0]
+    } else {
+      overallStatus = 'mixed'
+    }
+
+    return {
+      mataKuliahId: first.mataKuliahId,
+      mataKuliah: first.mataKuliah,
+      dosenId: first.dosenId,
+      dosenNama: first.dosenNama,
+      dosenEmail: first.dosenEmail,
+      deadline: first.deadline,
+      assignedAt: first.assignedAt,
+      cpls: groupAssignments.map(a => ({
+        id: a.id,
+        cplId: a.cplId,
+        cplKode: a.cplKode,
+        cplNama: a.cplNama,
+        status: a.status,
+        comment: a.comment,
+        rejectionReason: a.rejectionReason
+      })),
+      overallStatus
+    }
+  })
+}
+
 export default function AssignmentPage() {
   const router = useRouter()
   const [assignments, setAssignments] = useState<DisplayAssignment[]>([])
+  const [groupedAssignments, setGroupedAssignments] = useState<GroupedAssignment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
@@ -85,7 +153,7 @@ export default function AssignmentPage() {
     open: false,
     assignment: null
   })
-  const [cancelDialog, setCancelDialog] = useState<{ open: boolean; assignment: DisplayAssignment | null }>({
+  const [cancelDialog, setCancelDialog] = useState<{ open: boolean; assignment: GroupedAssignment | null }>({
     open: false,
     assignment: null
   })
@@ -108,13 +176,14 @@ export default function AssignmentPage() {
       if (response.success && response.data && response.data.data) {
         const mappedData: DisplayAssignment[] = response.data.data.map(a => ({
           id: a.id,
-          cplId: a.cpl_id,
+          cplId: a.cpl_id || '',
           cplKode: a.cpl?.kode || '-',
           cplNama: a.cpl?.judul || a.cpl?.deskripsi || '-',
           dosenId: a.dosen_id,
           dosenNama: a.dosen?.nama || '-',
           dosenEmail: a.dosen?.email || '-',
           mataKuliah: a.mata_kuliah || '-',
+          mataKuliahId: a.mata_kuliah_id || '',
           status: a.status,
           assignedAt: a.assigned_at,
           acceptedAt: a.accepted_at,
@@ -124,8 +193,13 @@ export default function AssignmentPage() {
           rejectionReason: a.rejection_reason
         }))
         setAssignments(mappedData)
+
+        // Group assignments by mata kuliah + dosen combination
+        const grouped = groupAssignmentsByMataKuliah(mappedData)
+        setGroupedAssignments(grouped)
       } else {
         setAssignments([])
+        setGroupedAssignments([])
       }
     } catch (err) {
       console.error('Error fetching assignments:', err)
@@ -140,13 +214,17 @@ export default function AssignmentPage() {
   }, [fetchAssignments])
 
   // Filter assignments by search
-  const filteredAssignments = assignments.filter(a => {
+  const filteredAssignments = groupedAssignments.filter(a => {
     const matchSearch = searchQuery === "" || 
-      a.cplKode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.cplNama.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.mataKuliah.toLowerCase().includes(searchQuery.toLowerCase()) ||
       a.dosenNama.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.mataKuliah.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchSearch
+      a.cpls.some(cpl => 
+        cpl.cplKode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        cpl.cplNama.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    const matchStatus = statusFilter === 'all' || a.overallStatus === statusFilter || 
+      (statusFilter === 'mixed' && a.overallStatus === 'mixed')
+    return matchSearch && matchStatus
   })
 
   // Stats
@@ -170,6 +248,8 @@ export default function AssignmentPage() {
         return <Badge className="bg-red-100 text-red-700">Ditolak</Badge>
       case 'cancelled':
         return <Badge className="bg-gray-100 text-gray-700">Dibatalkan</Badge>
+      case 'mixed':
+        return <Badge className="bg-purple-100 text-purple-700">Bercampur</Badge>
       default:
         return <Badge variant="outline">{status}</Badge>
     }
@@ -194,19 +274,22 @@ export default function AssignmentPage() {
 
   const handleCancel = async () => {
     if (!cancelDialog.assignment) return
-    
+
     setIsProcessing(true)
     try {
-      const response = await cplAssignmentService.updateStatus(cancelDialog.assignment.id, {
-        status: 'cancelled',
-        rejection_reason: 'Penugasan dibatalkan oleh Kaprodi'
-      })
-      if (response.success) {
-        fetchAssignments()
-        setCancelDialog({ open: false, assignment: null })
-      }
+      // Cancel all assignments in the group
+      const cancelPromises = cancelDialog.assignment.cpls.map(cpl =>
+        cplAssignmentService.updateStatus(cpl.id, {
+          status: 'cancelled',
+          rejection_reason: 'Penugasan dibatalkan oleh Kaprodi'
+        })
+      )
+
+      await Promise.all(cancelPromises)
+      fetchAssignments()
+      setCancelDialog({ open: false, assignment: null })
     } catch (err) {
-      console.error('Error cancelling assignment:', err)
+      console.error('Error cancelling assignments:', err)
     } finally {
       setIsProcessing(false)
     }
@@ -385,9 +468,8 @@ export default function AssignmentPage() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b text-left text-sm text-slate-600">
-                      <th className="pb-3 font-medium">CPL</th>
-                      <th className="pb-3 font-medium">Dosen</th>
                       <th className="pb-3 font-medium">Mata Kuliah</th>
+                      <th className="pb-3 font-medium">Dosen</th>
                       <th className="pb-3 font-medium">Status</th>
                       <th className="pb-3 font-medium">Tanggal</th>
                       <th className="pb-3 font-medium text-right">Aksi</th>
@@ -395,15 +477,11 @@ export default function AssignmentPage() {
                   </thead>
                   <tbody className="divide-y">
                     {filteredAssignments.map((assignment) => (
-                      <tr key={assignment.id} className="text-sm">
+                      <tr key={`${assignment.mataKuliahId}-${assignment.dosenId}`} className="text-sm">
                         <td className="py-4">
                           <div>
-                            <Badge className="bg-blue-100 text-blue-700 mb-1">
-                              {assignment.cplKode}
-                            </Badge>
-                            <p className="text-slate-600 text-xs line-clamp-1">
-                              {assignment.cplNama}
-                            </p>
+                            <p className="font-medium text-slate-900">{assignment.mataKuliah}</p>
+                            <p className="text-xs text-slate-500">ID: {assignment.mataKuliahId}</p>
                           </div>
                         </td>
                         <td className="py-4">
@@ -413,13 +491,10 @@ export default function AssignmentPage() {
                           </div>
                         </td>
                         <td className="py-4">
-                          <p className="text-slate-700">{assignment.mataKuliah}</p>
-                        </td>
-                        <td className="py-4">
-                          {getStatusBadge(assignment.status)}
-                          {assignment.rejectionReason && (
-                            <p className="text-xs text-red-500 mt-1">
-                              {assignment.rejectionReason}
+                          {getStatusBadge(assignment.overallStatus)}
+                          {assignment.overallStatus === 'mixed' && (
+                            <p className="text-xs text-slate-500 mt-1">
+                              Status bercampur
                             </p>
                           )}
                         </td>
@@ -440,28 +515,23 @@ export default function AssignmentPage() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem asChild>
-                                <Link href={`/kaprodi/cpl/${assignment.cplId}`}>
+                                <Link href={`/kaprodi/mata-kuliah/${assignment.mataKuliahId}`}>
                                   <Eye className="mr-2 h-4 w-4" />
-                                  Lihat CPL
+                                  Lihat Mata Kuliah
                                 </Link>
                               </DropdownMenuItem>
-                              {(assignment.status === 'assigned' || assignment.status === 'accepted') && (
+                              {(assignment.overallStatus === 'assigned' || assignment.overallStatus === 'accepted') && (
+                                <DropdownMenuSeparator />
+                              )}
+                              {(assignment.overallStatus === 'assigned' || assignment.overallStatus === 'accepted') && (
                                 <DropdownMenuItem 
                                   onClick={() => setCancelDialog({ open: true, assignment })}
-                                  className="text-yellow-600"
+                                  className="text-red-600"
                                 >
                                   <XCircle className="mr-2 h-4 w-4" />
-                                  Batalkan
+                                  Batalkan Semua
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem 
-                                onClick={() => setDeleteDialog({ open: true, assignment })}
-                                className="text-red-600"
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Hapus
-                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </td>
@@ -530,11 +600,25 @@ export default function AssignmentPage() {
             <div className="py-4">
               <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
                 <p className="font-medium text-yellow-900">
-                  {cancelDialog.assignment.cplKode} - {cancelDialog.assignment.dosenNama}
+                  {cancelDialog.assignment.mataKuliah}
                 </p>
                 <p className="text-sm text-yellow-700 mt-1">
-                  Mata Kuliah: {cancelDialog.assignment.mataKuliah}
+                  Dosen: {cancelDialog.assignment.dosenNama}
                 </p>
+                <p className="text-sm text-yellow-700 mt-1">
+                  CPL yang akan dibatalkan: {cancelDialog.assignment.cpls.length} item
+                </p>
+                <div className="mt-2 space-y-1">
+                  {cancelDialog.assignment.cpls.map((cpl, index) => (
+                    <div key={cpl.id} className="text-xs text-yellow-600 flex items-center gap-1">
+                      <span>•</span>
+                      <Badge className="bg-yellow-100 text-yellow-700 text-xs">
+                        {cpl.cplKode}
+                      </Badge>
+                      <span>{cpl.cplNama}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}

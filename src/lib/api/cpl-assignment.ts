@@ -3,7 +3,8 @@ import api, { ApiResponse, PaginatedResponse } from './client';
 // CPL Assignment Types
 export interface CPLAssignment {
   id: string;
-  cpl_id: string;
+  cpl_id?: string; // Keep for backward compatibility
+  cpl_ids?: string[]; // New array format
   dosen_id: string;
   mata_kuliah?: string;
   mata_kuliah_id?: string;
@@ -21,15 +22,51 @@ export interface CPLAssignment {
     judul: string;
     deskripsi?: string;
   };
+  cpls?: Array<{
+    id: string;
+    kode: string;
+    nama: string;
+    deskripsi?: string;
+    status: string;
+    version: number;
+    created_at: string;
+    updated_at: string;
+    created_by: string;
+  }>;
   dosen?: {
     id: string;
     nama: string;
     email?: string;
   };
+  mata_kuliah_ref?: {
+    id: string;
+    kode: string;
+    nama: string;
+    sks: number;
+    semester: number;
+    jenis: string;
+    deskripsi?: string;
+    prasyarat: string[];
+    status: string;
+    dosen_pengampu_id: string;
+    koordinator_id: string;
+    created_at: string;
+    updated_at: string;
+    created_by: string;
+  };
 }
 
 export interface CreateAssignmentRequest {
   cpl_id: string;
+  dosen_id: string;
+  mata_kuliah?: string;
+  mata_kuliah_id?: string;
+  deadline?: string;
+  catatan?: string;
+}
+
+export interface CreateBulkAssignmentRequest {
+  cpl_ids: string[];
   dosen_id: string;
   mata_kuliah?: string;
   mata_kuliah_id?: string;
@@ -51,6 +88,7 @@ export interface AssignmentListParams {
   status?: 'assigned' | 'accepted' | 'rejected' | 'done' | 'cancelled';
   sort_by?: 'assigned_at' | 'deadline' | 'status';
   sort_order?: 'asc' | 'desc';
+  include?: string;
 }
 
 // CPL Assignment Service
@@ -78,6 +116,11 @@ export const cplAssignmentService = {
   // Create assignment (Kaprodi only)
   create: async (data: CreateAssignmentRequest): Promise<ApiResponse<CPLAssignment>> => {
     return api.post<CPLAssignment>('/cpl-assignments', data);
+  },
+
+  // Create bulk assignments (Kaprodi only)
+  createBulk: async (data: CreateBulkAssignmentRequest): Promise<ApiResponse<CPLAssignment[]>> => {
+    return api.post<CPLAssignment[]>('/cpl-assignments/bulk', data);
   },
 
   // Update assignment status

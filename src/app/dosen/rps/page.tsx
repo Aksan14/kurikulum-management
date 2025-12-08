@@ -142,6 +142,26 @@ export default function DosenRPSPage() {
 
   const handleSubmitRPS = async (rpsId: string) => {
     try {
+      // Get current user
+      const currentUser = authService.getCurrentUser()
+      if (!currentUser) {
+        alert("Sesi login telah berakhir. Silakan login kembali.")
+        router.push('/login')
+        return
+      }
+
+      // Find the RPS to check ownership
+      const rps = rpsList.find(r => r.id === rpsId)
+      if (!rps) {
+        alert("RPS tidak ditemukan")
+        return
+      }
+
+      if (rps.dosen_id !== currentUser.id) {
+        alert("Anda tidak memiliki akses untuk mengajukan RPS ini")
+        return
+      }
+
       await rpsService.submit(rpsId)
       
       // Get the RPS data to include in notification
@@ -174,7 +194,11 @@ export default function DosenRPSPage() {
       await fetchRPS()
     } catch (err) {
       console.error("Error submitting RPS:", err)
-      alert("Gagal mengajukan RPS")
+      if (err instanceof Error && err.message.includes('akses')) {
+        alert("Anda tidak memiliki akses untuk mengajukan RPS ini")
+      } else {
+        alert("Gagal mengajukan RPS. Silakan coba lagi.")
+      }
     }
   }
 

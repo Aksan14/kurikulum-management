@@ -233,12 +233,20 @@ export default function CPLListPage() {
               Capaian Pembelajaran Lulusan Program Studi
             </p>
           </div>
-          <Button asChild>
-            <Link href="/kaprodi/cpl/create">
-              <Plus className="h-4 w-4" />
-              Buat CPL Baru
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" asChild>
+              <Link href="/kaprodi/cpl/matrix">
+                <GraduationCap className="h-4 w-4 mr-2" />
+                Lihat Matrix
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link href="/kaprodi/cpl/create">
+                <Plus className="h-4 w-4" />
+                Buat CPL Baru
+              </Link>
+            </Button>
+          </div>
         </div>
 
         {/* Stats Summary */}

@@ -63,6 +63,38 @@ export default function CreateCPLPage() {
     }
   }
 
+  // Additional validation before API call
+  const validateDataIntegrity = (data: CreateCPLRequest): { isValid: boolean; message?: string } => {
+    // Check for potential XSS or injection attempts
+    const suspiciousPatterns = [
+      /<script/i,
+      /javascript:/i,
+      /on\w+\s*=/i,
+      /<iframe/i,
+      /<object/i,
+      /<embed/i
+    ]
+    
+    const allText = `${data.kode} ${data.nama} ${data.deskripsi}`
+    for (const pattern of suspiciousPatterns) {
+      if (pattern.test(allText)) {
+        return { isValid: false, message: 'Data mengandung karakter yang tidak diizinkan' }
+      }
+    }
+    
+    // Check for reasonable length limits
+    if (data.kode.length > 50 || data.nama.length > 500 || data.deskripsi.length > 2000) {
+      return { isValid: false, message: 'Data terlalu panjang' }
+    }
+    
+    // Check for empty strings after trimming
+    if (!data.kode.trim() || !data.nama.trim() || !data.deskripsi.trim()) {
+      return { isValid: false, message: 'Data tidak boleh kosong' }
+    }
+    
+    return { isValid: true }
+  }
+
   const validateForm = () => {
     const newErrors: Record<string, string> = {}
     
@@ -71,8 +103,12 @@ export default function CreateCPLPage() {
       newErrors.kode = 'Kode CPL wajib diisi'
     } else if (formData.kode.trim().length < 2) {
       newErrors.kode = 'Kode CPL minimal 2 karakter, contoh: CPL-01'
-    } else if (!/^[A-Za-z0-9\-]+$/.test(formData.kode.trim())) {
-      newErrors.kode = 'Kode CPL hanya boleh berisi huruf, angka, dan tanda hubung (-)'
+    } else if (formData.kode.trim().length > 20) {
+      newErrors.kode = 'Kode CPL maksimal 20 karakter'
+    } else if (!/^[A-Za-z0-9\-_\s]+$/.test(formData.kode.trim())) {
+      newErrors.kode = 'Kode CPL hanya boleh berisi huruf, angka, spasi, tanda hubung (-), dan underscore (_)'
+    } else if (/^\s|\s$/.test(formData.kode.trim())) {
+      newErrors.kode = 'Kode CPL tidak boleh diawali atau diakhiri dengan spasi'
     }
 
     // Nama CPL validation
@@ -80,8 +116,12 @@ export default function CreateCPLPage() {
       newErrors.nama = 'Nama CPL wajib diisi'
     } else if (formData.nama.trim().length < 3) {
       newErrors.nama = 'Nama CPL minimal 3 karakter, contoh: Mampu menganalisis masalah'
+    } else if (formData.nama.trim().length > 500) {
+      newErrors.nama = 'Nama CPL maksimal 500 karakter'
     } else if (/^[\-\s]+$/.test(formData.nama.trim())) {
       newErrors.nama = 'Nama CPL harus berisi teks yang valid'
+    } else if (/^\s|\s$/.test(formData.nama.trim())) {
+      newErrors.nama = 'Nama CPL tidak boleh diawali atau diakhiri dengan spasi'
     }
 
     // Deskripsi validation
@@ -89,8 +129,12 @@ export default function CreateCPLPage() {
       newErrors.deskripsi = 'Deskripsi wajib diisi'
     } else if (formData.deskripsi.trim().length < 10) {
       newErrors.deskripsi = 'Deskripsi minimal 10 karakter untuk menjelaskan capaian pembelajaran'
+    } else if (formData.deskripsi.trim().length > 1000) {
+      newErrors.deskripsi = 'Deskripsi maksimal 1000 karakter'
     } else if (/^[\-\s]+$/.test(formData.deskripsi.trim())) {
       newErrors.deskripsi = 'Deskripsi harus berisi penjelasan yang valid'
+    } else if (/^\s|\s$/.test(formData.deskripsi.trim())) {
+      newErrors.deskripsi = 'Deskripsi tidak boleh diawali atau diakhiri dengan spasi'
     }
 
     return newErrors
@@ -99,9 +143,24 @@ export default function CreateCPLPage() {
   const handleSubmit = async (e: React.FormEvent, action: 'draft' | 'published') => {
     e.preventDefault()
     
+    // Validate form data
     const newErrors = validateForm()
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors)
+      setSubmitError('Mohon perbaiki kesalahan pada form sebelum melanjutkan')
+      return
+    }
+
+    // Additional validation before API call
+    if (!authUser) {
+      setSubmitError('Sesi login telah berakhir. Silakan login kembali.')
+      router.push('/login')
+      return
+    }
+
+    // Check if user has kaprodi role
+    if (authUser.role !== 'kaprodi') {
+      setSubmitError('Anda tidak memiliki izin untuk membuat CPL')
       return
     }
 
@@ -110,30 +169,103 @@ export default function CreateCPLPage() {
     setErrors({})
 
     try {
-      const requestData: CreateCPLRequest = {
+      // Prepare data with additional validation
+      const trimmedData = {
         kode: formData.kode.trim(),
         nama: formData.nama.trim(),
-        deskripsi: formData.deskripsi.trim(),
+        deskripsi: formData.deskripsi.trim()
+      }
+
+      // Final validation before sending
+      if (trimmedData.kode.length === 0 || trimmedData.nama.length === 0 || trimmedData.deskripsi.length === 0) {
+        throw new Error('Data tidak boleh kosong setelah dipangkas')
+      }
+
+      const requestData: CreateCPLRequest = {
+        ...trimmedData,
         status: action
       }
+
+      // Validate data integrity
+      const integrityCheck = validateDataIntegrity(requestData)
+      if (!integrityCheck.isValid) {
+        setSubmitError(integrityCheck.message || 'Data tidak valid')
+        return
+      }
+
+      console.log('Sending CPL data:', requestData) // For debugging
 
       const response = await cplService.create(requestData)
       
       if (response.success) {
         router.push('/kaprodi/cpl')
       } else {
-        // Parse error message from API
+        // Handle API validation errors
         const errorMsg = response.message || response.error || 'Gagal membuat CPL'
+        console.error('API Error:', response)
         setSubmitError(errorMsg)
+        
+        // If it's a validation error from server, try to map to field errors
+        if (response.data && typeof response.data === 'object') {
+          const serverErrors: Record<string, string> = {}
+          Object.entries(response.data).forEach(([key, value]) => {
+            if (typeof value === 'string') {
+              serverErrors[key] = value
+            } else if (Array.isArray(value) && value.length > 0) {
+              serverErrors[key] = value[0]
+            }
+          })
+          if (Object.keys(serverErrors).length > 0) {
+            setErrors(serverErrors)
+          }
+        }
       }
     } catch (err: unknown) {
       console.error('Error creating CPL:', err)
-      // Handle different error types
+      
+      // Enhanced error handling
       if (err && typeof err === 'object' && 'message' in err) {
-        const errorObj = err as { message: string; data?: { message?: string } }
-        setSubmitError(errorObj.data?.message || errorObj.message || 'Terjadi kesalahan saat membuat CPL')
+        const errorObj = err as { message: string; data?: any; status?: number }
+        
+        // Handle network errors
+        if (errorObj.message.includes('fetch') || errorObj.message.includes('network')) {
+          setSubmitError('Koneksi internet bermasalah. Periksa koneksi dan coba lagi.')
+        } 
+        // Handle authentication errors
+        else if (errorObj.status === 401 || errorObj.status === 403) {
+          setSubmitError('Sesi login telah berakhir atau Anda tidak memiliki izin.')
+          setTimeout(() => router.push('/login'), 2000)
+        }
+        // Handle validation errors from server
+        else if (errorObj.status === 422 && errorObj.data) {
+          setSubmitError('Data yang dikirim tidak valid. Periksa kembali form.')
+          if (typeof errorObj.data === 'object') {
+            const validationErrors: Record<string, string> = {}
+            Object.entries(errorObj.data).forEach(([key, value]) => {
+              if (typeof value === 'string') {
+                validationErrors[key] = value
+              } else if (Array.isArray(value) && value.length > 0) {
+                validationErrors[key] = value.join(', ')
+              }
+            })
+            setErrors(validationErrors)
+          }
+        }
+        // Handle duplicate entry errors
+        else if (errorObj.status === 409) {
+          setSubmitError('Kode CPL sudah digunakan. Gunakan kode yang berbeda.')
+          setErrors({ kode: 'Kode CPL sudah ada dalam sistem' })
+        }
+        // Other server errors
+        else if (errorObj.status && errorObj.status >= 500) {
+          setSubmitError('Server mengalami masalah. Coba lagi dalam beberapa saat.')
+        }
+        // Default error message
+        else {
+          setSubmitError(errorObj.data?.message || errorObj.message || 'Terjadi kesalahan saat membuat CPL')
+        }
       } else {
-        setSubmitError('Terjadi kesalahan saat membuat CPL. Pastikan data yang diisi valid.')
+        setSubmitError('Terjadi kesalahan yang tidak diketahui. Pastikan data yang diisi valid dan coba lagi.')
       }
     } finally {
       setIsSubmitting(false)

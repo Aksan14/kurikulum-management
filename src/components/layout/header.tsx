@@ -25,6 +25,9 @@ interface HeaderProps {
 export function Header({ user, unreadNotifications = 0 }: HeaderProps) {
   const { logout } = useAuth()
   
+  console.log('🔔 [Header] unreadNotifications received:', unreadNotifications)
+  console.log('🔔 [Header] user role:', user.role)
+  
   const initials = user.nama
     .split(" ")
     .map((n) => n[0])

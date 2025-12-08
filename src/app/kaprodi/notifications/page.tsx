@@ -28,6 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatDateTime, getInitials } from "@/lib/utils"
 import { useAuth } from "@/contexts/AuthContext"
 import { notificationService, Notification as ApiNotification } from "@/lib/api/notifications"
+import { useNotifications } from "@/hooks"
 
 // Display notification interface
 interface DisplayNotification {
@@ -43,6 +44,7 @@ interface DisplayNotification {
 
 export default function NotificationsPage() {
   const { user: authUser } = useAuth()
+  const { refreshUnreadCount } = useNotifications()
   
   // State
   const [notifications, setNotifications] = useState<DisplayNotification[]>([])
@@ -113,6 +115,7 @@ export default function NotificationsPage() {
       setNotifications(notifications.map(n => 
         n.id === id ? { ...n, isRead: true } : n
       ))
+      refreshUnreadCount()
     } catch (err) {
       console.error('Error marking as read:', err)
       setError('Gagal menandai notifikasi sebagai dibaca')
@@ -123,6 +126,7 @@ export default function NotificationsPage() {
     try {
       await notificationService.markAllAsRead()
       setNotifications(notifications.map(n => ({ ...n, isRead: true })))
+      refreshUnreadCount()
     } catch (err) {
       console.error('Error marking all as read:', err)
       setError('Gagal menandai semua notifikasi sebagai dibaca')

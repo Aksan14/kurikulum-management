@@ -24,12 +24,16 @@ import {
   BookOpen,
   Calendar,
   AlertCircle,
-  Loader2
+  Loader2,
+  AlertTriangle,
+  Settings
 } from "lucide-react"
-import { cplAssignmentService, CreateAssignmentRequest } from "@/lib/api/cpl-assignment"
+import { cplAssignmentService, CreateBulkAssignmentRequest, CPLAssignment, CreateAssignmentRequest } from "@/lib/api/cpl-assignment"
+import { ApiError } from "@/lib/api/client"
 import { cplService, CPL } from "@/lib/api/cpl"
 import { usersService, User as ApiUser } from "@/lib/api/users"
 import { mataKuliahService, MataKuliah } from "@/lib/api/mata-kuliah"
+import { cplMKMappingService, CPLMKMapping } from "@/lib/api/cpl-mk-mapping"
 import { authService } from "@/lib/api/auth"
 
 export default function CreateAssignmentPage() {
@@ -37,17 +41,16 @@ export default function CreateAssignmentPage() {
   
   // Form state
   const [formData, setFormData] = useState({
-    cpl_id: "",
-    dosen_id: "",
     mata_kuliah_id: "",
+    dosen_id: "",
     deadline: "",
     catatan: ""
   })
   
   // Options state
-  const [cplList, setCplList] = useState<CPL[]>([])
-  const [dosenList, setDosenList] = useState<ApiUser[]>([])
   const [mataKuliahList, setMataKuliahList] = useState<MataKuliah[]>([])
+  const [dosenList, setDosenList] = useState<ApiUser[]>([])
+  const [mappedCPLs, setMappedCPLs] = useState<CPLMKMapping[]>([])
   
   // UI state
   const [loading, setLoading] = useState(true)
@@ -64,15 +67,11 @@ export default function CreateAssignmentPage() {
 
     setLoading(true)
     try {
-      const [cplResponse, usersResponse, mkResponse] = await Promise.all([
-        cplService.getAll({ status: 'published', limit: 100 }),
+      const [usersResponse, mkResponse] = await Promise.all([
         usersService.getAll({ role: 'dosen', status: 'active', limit: 100 }),
         mataKuliahService.getAll({ status: 'aktif', limit: 100 })
       ])
 
-      if (cplResponse.success && cplResponse.data?.data) {
-        setCplList(cplResponse.data.data)
-      }
       if (usersResponse.success && usersResponse.data?.data) {
         setDosenList(usersResponse.data.data)
       }
@@ -90,11 +89,36 @@ export default function CreateAssignmentPage() {
     fetchOptions()
   }, [fetchOptions])
 
+  // Fetch mapped CPLs when mata kuliah changes
+  const fetchMappedCPLs = useCallback(async (mkId: string) => {
+    if (!mkId) {
+      setMappedCPLs([])
+      return
+    }
+
+    try {
+      const response = await cplMKMappingService.getByMK(mkId)
+      if (response.success && response.data && response.data.data) {
+        setMappedCPLs(response.data.data)
+      } else {
+        setMappedCPLs([])
+      }
+    } catch (err) {
+      console.error('Error fetching mapped CPLs:', err)
+      setMappedCPLs([])
+    }
+  }, [])
+
   // Clear error on input change
   const handleInputChange = (field: string, value: string) => {
     setFormData({ ...formData, [field]: value })
     if (errors[field]) {
       setErrors({ ...errors, [field]: '' })
+    }
+
+    // Fetch mapped CPLs when mata kuliah changes
+    if (field === 'mata_kuliah_id') {
+      fetchMappedCPLs(value)
     }
   }
 
@@ -102,11 +126,14 @@ export default function CreateAssignmentPage() {
   const validateForm = () => {
     const newErrors: Record<string, string> = {}
 
-    if (!formData.cpl_id) {
-      newErrors.cpl_id = "Pilih CPL yang akan ditugaskan"
+    if (!formData.mata_kuliah_id) {
+      newErrors.mata_kuliah_id = "Pilih mata kuliah yang akan ditugaskan"
     }
     if (!formData.dosen_id) {
       newErrors.dosen_id = "Pilih dosen yang akan ditugaskan"
+    }
+    if (mappedCPLs.length === 0) {
+      newErrors.mata_kuliah_id = "Mata kuliah yang dipilih tidak memiliki mapping CPL. Silakan mapping CPL terlebih dahulu."
     }
 
     setErrors(newErrors)
@@ -128,85 +155,109 @@ export default function CreateAssignmentPage() {
     setSubmitError(null)
 
     try {
-      // Build request data - only include fields with values
-      const requestData: CreateAssignmentRequest = {
-        cpl_id: formData.cpl_id,
-        dosen_id: formData.dosen_id,
-      }
+      // Get CPL IDs from mappings
+      const cplIds = mappedCPLs.map(mapping => mapping.cpl_id)
       
-      // Only add optional fields if they have values
-      if (formData.mata_kuliah_id && formData.mata_kuliah_id.trim() !== '') {
-        requestData.mata_kuliah_id = formData.mata_kuliah_id
-        // Find mata kuliah name
-        const selectedMK = mataKuliahList.find(mk => mk.id === formData.mata_kuliah_id)
-        if (selectedMK) {
-          requestData.mata_kuliah = selectedMK.nama
+      // Find mata kuliah name
+      const selectedMK = mataKuliahList.find(mk => mk.id === formData.mata_kuliah_id)
+      
+      // Create assignments for each CPL individually
+      const createdAssignments: CPLAssignment[] = []
+      const failedAssignments: { cplId: string; error: string }[] = []
+      const skippedAssignments: string[] = []
+      
+      for (const cplId of cplIds) {
+        try {
+          const assignmentData: CreateAssignmentRequest = {
+            cpl_id: cplId,
+            dosen_id: formData.dosen_id,
+            mata_kuliah: selectedMK?.nama,
+            mata_kuliah_id: formData.mata_kuliah_id,
+          }
+          
+          if (formData.deadline && formData.deadline.trim() !== '') {
+            assignmentData.deadline = new Date(formData.deadline).toISOString()
+          }
+          
+          if (formData.catatan && formData.catatan.trim() !== '') {
+            assignmentData.catatan = formData.catatan.trim()
+          }
+          
+          console.log(`Creating assignment for CPL ${cplId}:`, assignmentData)
+          
+          const response = await cplAssignmentService.create(assignmentData)
+          
+          if (response.success && response.data) {
+            createdAssignments.push(response.data)
+          } else {
+            failedAssignments.push({
+              cplId,
+              error: response.message || `Failed to create assignment for CPL ${cplId}`
+            })
+          }
+        } catch (err) {
+          let errorMessage = `Failed to create assignment for CPL ${cplId}`
+          let isAlreadyExistsError = false
+          
+          if (err instanceof ApiError) {
+            errorMessage = err.getDetailedMessage() || err.message
+            // Check if this is an "assignment already exists" error
+            isAlreadyExistsError = errorMessage.toLowerCase().includes('sudah ada') || 
+                                   errorMessage.toLowerCase().includes('already exists') ||
+                                   err.status === 409 // Conflict status
+          } else if (err instanceof Error) {
+            errorMessage = err.message
+          }
+          
+          // Only count as failure if it's not an "already exists" error
+          if (!isAlreadyExistsError) {
+            failedAssignments.push({ cplId, error: errorMessage })
+            console.error(`Error creating assignment for CPL ${cplId}:`, err)
+          } else {
+            skippedAssignments.push(cplId)
+            console.log(`Assignment already exists for CPL ${cplId}, skipping`)
+          }
         }
       }
-      
-      if (formData.deadline && formData.deadline.trim() !== '') {
-        // Convert datetime-local to ISO format
-        requestData.deadline = new Date(formData.deadline).toISOString()
-      }
-      
-      if (formData.catatan && formData.catatan.trim() !== '') {
-        requestData.catatan = formData.catatan.trim()
-      }
 
-      console.log('Sending assignment data:', requestData)
-
-      const response = await cplAssignmentService.create(requestData)
+      console.log('Successfully created assignments:', createdAssignments)
+      console.log('Failed assignments:', failedAssignments)
+      console.log('Skipped assignments (already exist):', skippedAssignments)
       
-      if (response.success) {
+      // Check if any assignments were created successfully
+      if (createdAssignments.length > 0) {
+        // Some assignments succeeded, show partial success message
+        let successMessage = `Berhasil membuat ${createdAssignments.length} penugasan`
+        if (skippedAssignments.length > 0) {
+          successMessage += `, ${skippedAssignments.length} sudah ada (diabaikan)`
+        }
+        if (failedAssignments.length > 0) {
+          successMessage += `, ${failedAssignments.length} gagal`
+        }
+        
+        // For now, redirect on partial success. In future, could show detailed results
         router.push('/kaprodi/assignment')
+      } else if (skippedAssignments.length > 0) {
+        // All assignments were skipped (already exist)
+        throw new Error(`Semua penugasan sudah ada untuk mata kuliah dan dosen ini`)
       } else {
-        setSubmitError(response.message || 'Gagal membuat penugasan')
+        // All assignments failed
+        const errorMessages = failedAssignments.map(f => f.error).join('\n')
+        throw new Error(`Semua penugasan gagal:\n${errorMessages}`)
       }
     } catch (err: unknown) {
       console.error('Full error object:', err)
-      console.error('Error type:', typeof err)
-      console.error('Error JSON:', JSON.stringify(err, null, 2))
       
       let errorMessage = 'Terjadi kesalahan saat membuat penugasan'
       
-      if (err && typeof err === 'object') {
-        const errorObj = err as { 
-          message?: string
-          status?: number
-          data?: { 
-            message?: string
-            error?: string
-            errors?: Record<string, string[]>
-            details?: string
-          } 
-        }
-        
-        console.log('Error status:', errorObj.status)
-        console.log('Error data:', errorObj.data)
-        
-        // Try to get the most specific error message
-        if (errorObj.data?.errors) {
-          // Handle validation errors object
-          const validationErrors = Object.entries(errorObj.data.errors)
-            .map(([field, messages]) => `${field}: ${messages.join(', ')}`)
-            .join('\n')
-          errorMessage = `Validasi gagal:\n${validationErrors}`
-        } else if (errorObj.data?.details) {
-          errorMessage = errorObj.data.details
-        } else if (errorObj.data?.error) {
-          errorMessage = errorObj.data.error
-        } else if (errorObj.data?.message) {
-          errorMessage = errorObj.data.message
-        } else if (errorObj.message) {
-          errorMessage = errorObj.message
-        }
-        
-        // Add status code info
-        if (errorObj.status) {
-          errorMessage = `[${errorObj.status}] ${errorMessage}`
-        }
+      // Check if it's an ApiError with detailed message
+      if (err instanceof ApiError) {
+        errorMessage = err.getDetailedMessage() || err.message
+      } else if (err instanceof Error) {
+        errorMessage = err.message
       }
       
+      console.error('Error message:', errorMessage)
       setSubmitError(errorMessage)
     } finally {
       setIsSubmitting(false)
@@ -251,10 +302,10 @@ export default function CreateAssignmentPage() {
                 Informasi Penugasan
               </CardTitle>
               <CardDescription>
-                Pilih CPL dan dosen yang akan ditugaskan
+                Pilih mata kuliah dan dosen yang akan ditugaskan
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-8">
               {/* Submit Error */}
               {submitError && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
@@ -266,43 +317,110 @@ export default function CreateAssignmentPage() {
                 </div>
               )}
 
-              {/* CPL Selection */}
+              {/* Section 1: Mata Kuliah Selection */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-200">
+                  <BookOpen className="h-4 w-4 text-blue-600" />
+                  <h3 className="font-semibold text-slate-800">Pilih Mata Kuliah</h3>
+                </div>
               <div className="space-y-2">
-                <Label htmlFor="cpl_id">
-                  CPL <span className="text-red-500">*</span>
+                <Label htmlFor="mata_kuliah_id">
+                  Mata Kuliah <span className="text-red-500">*</span>
                 </Label>
-                <Select 
-                  value={formData.cpl_id} 
-                  onValueChange={(value) => handleInputChange('cpl_id', value)}
+                <Select
+                  value={formData.mata_kuliah_id}
+                  onValueChange={(value) => handleInputChange('mata_kuliah_id', value)}
                 >
-                  <SelectTrigger className={errors.cpl_id ? 'border-red-500' : ''}>
-                    <SelectValue placeholder="Pilih CPL yang akan ditugaskan" />
+                  <SelectTrigger className={errors.mata_kuliah_id ? 'border-red-500' : ''}>
+                    <SelectValue placeholder="Pilih mata kuliah yang akan ditugaskan" />
                   </SelectTrigger>
                   <SelectContent>
-                    {cplList.map((cpl) => (
-                      <SelectItem key={cpl.id} value={cpl.id}>
+                    {mataKuliahList.map((mk) => (
+                      <SelectItem key={mk.id} value={mk.id}>
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-blue-600">{cpl.kode}</span>
-                          <span className="text-slate-600">- {cpl.nama}</span>
+                          <BookOpen className="h-4 w-4 text-slate-400" />
+                          <span>{mk.nama}</span>
+                          <span className="text-slate-400 text-sm">({mk.kode})</span>
                         </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {errors.cpl_id && (
+                {errors.mata_kuliah_id && (
                   <p className="text-sm text-red-500 flex items-center gap-1">
                     <AlertCircle className="h-3 w-3" />
-                    {errors.cpl_id}
+                    {errors.mata_kuliah_id}
                   </p>
                 )}
-                {cplList.length === 0 && (
+                {mataKuliahList.length === 0 && (
                   <p className="text-sm text-yellow-600">
-                    Tidak ada CPL dengan status published. Publish CPL terlebih dahulu.
+                    Tidak ada mata kuliah aktif. Tambahkan mata kuliah terlebih dahulu.
                   </p>
                 )}
               </div>
+              </div>
 
-              {/* Dosen Selection */}
+              {/* Section 2: CPL Preview */}
+              {formData.mata_kuliah_id && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-200">
+                    <Target className="h-4 w-4 text-green-600" />
+                    <h3 className="font-semibold text-slate-800">CPL yang Akan Ditugaskan</h3>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    {mappedCPLs.length > 0 ? (
+                      <div className="space-y-3">
+                        <p className="text-sm text-blue-700 font-medium">
+                          Mata kuliah ini akan mencakup {mappedCPLs.length} CPL berikut:
+                        </p>
+                        <div className="grid gap-2">
+                          {mappedCPLs.map((mapping) => (
+                            <div key={mapping.id} className="flex items-center justify-between bg-white rounded-md p-3 border">
+                              <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-sm font-semibold text-blue-600 bg-blue-100 px-2 py-1 rounded">
+                                    {mapping.cpl?.kode}
+                                  </span>
+                                  <span className="text-sm font-medium text-gray-900">
+                                    {mapping.cpl?.nama}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs px-2 py-1 rounded-full ${
+                                  mapping.level === 'tinggi' ? 'bg-green-100 text-green-800' :
+                                  mapping.level === 'sedang' ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-red-100 text-red-800'
+                                }`}>
+                                  {mapping.level === 'tinggi' ? 'Tinggi' :
+                                   mapping.level === 'sedang' ? 'Sedang' : 'Rendah'}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-4">
+                        <AlertTriangle className="h-8 w-8 text-yellow-500 mx-auto mb-2" />
+                        <p className="text-sm text-yellow-700">
+                          Mata kuliah ini belum memiliki mapping CPL.
+                        </p>
+                        <p className="text-xs text-yellow-600 mt-1">
+                          Silakan mapping CPL ke mata kuliah ini terlebih dahulu di halaman Mapping.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Section 3: Dosen Selection */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-200">
+                  <User className="h-4 w-4 text-purple-600" />
+                  <h3 className="font-semibold text-slate-800">Pilih Dosen</h3>
+                </div>
               <div className="space-y-2">
                 <Label htmlFor="dosen_id">
                   Dosen <span className="text-red-500">*</span>
@@ -338,69 +456,48 @@ export default function CreateAssignmentPage() {
                   </p>
                 )}
               </div>
-
-              {/* Mata Kuliah Selection (Optional) */}
-              <div className="space-y-2">
-                <Label htmlFor="mata_kuliah_id">
-                  Mata Kuliah <span className="text-slate-400">(Opsional)</span>
-                </Label>
-                <Select 
-                  value={formData.mata_kuliah_id || 'none'} 
-                  onValueChange={(value) => handleInputChange('mata_kuliah_id', value === 'none' ? '' : value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pilih mata kuliah terkait (opsional)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Tidak ada</SelectItem>
-                    {mataKuliahList.map((mk) => (
-                      <SelectItem key={mk.id} value={mk.id}>
-                        <div className="flex items-center gap-2">
-                          <BookOpen className="h-4 w-4 text-slate-400" />
-                          <span className="font-mono text-xs text-slate-500">{mk.kode}</span>
-                          <span>{mk.nama}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-sm text-slate-500">
-                  Pilih mata kuliah jika penugasan terkait dengan mata kuliah tertentu
-                </p>
               </div>
 
-              {/* Deadline */}
-              <div className="space-y-2">
-                <Label htmlFor="deadline">
-                  Deadline <span className="text-slate-400">(Opsional)</span>
-                </Label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <Input
-                    id="deadline"
-                    type="date"
-                    value={formData.deadline}
-                    onChange={(e) => handleInputChange('deadline', e.target.value)}
-                    className="pl-10"
+              {/* Section 4: Optional Settings */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-200">
+                  <Settings className="h-4 w-4 text-slate-600" />
+                  <h3 className="font-semibold text-slate-800">Pengaturan Tambahan (Opsional)</h3>
+                </div>
+
+                {/* Deadline */}
+                <div className="space-y-2">
+                  <Label htmlFor="deadline">
+                    Deadline <span className="text-slate-400">(Opsional)</span>
+                  </Label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <Input
+                      id="deadline"
+                      type="date"
+                      value={formData.deadline}
+                      onChange={(e) => handleInputChange('deadline', e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  <p className="text-sm text-slate-500">
+                    Tentukan batas waktu pengerjaan jika diperlukan
+                  </p>
+                </div>
+
+                {/* Catatan */}
+                <div className="space-y-2">
+                  <Label htmlFor="catatan">
+                    Catatan <span className="text-slate-400">(Opsional)</span>
+                  </Label>
+                  <Textarea
+                    id="catatan"
+                    placeholder="Tambahkan catatan atau instruksi untuk dosen..."
+                    value={formData.catatan}
+                    onChange={(e) => handleInputChange('catatan', e.target.value)}
+                    rows={3}
                   />
                 </div>
-                <p className="text-sm text-slate-500">
-                  Tentukan batas waktu pengerjaan jika diperlukan
-                </p>
-              </div>
-
-              {/* Catatan */}
-              <div className="space-y-2">
-                <Label htmlFor="catatan">
-                  Catatan <span className="text-slate-400">(Opsional)</span>
-                </Label>
-                <Textarea
-                  id="catatan"
-                  placeholder="Tambahkan catatan atau instruksi untuk dosen..."
-                  value={formData.catatan}
-                  onChange={(e) => handleInputChange('catatan', e.target.value)}
-                  rows={3}
-                />
               </div>
             </CardContent>
           </Card>
@@ -413,7 +510,7 @@ export default function CreateAssignmentPage() {
             <Button 
               type="submit" 
               className="bg-blue-600 hover:bg-blue-700"
-              disabled={isSubmitting || cplList.length === 0 || dosenList.length === 0}
+              disabled={isSubmitting || !formData.mata_kuliah_id || mappedCPLs.length === 0 || dosenList.length === 0}
             >
               {isSubmitting ? (
                 <>

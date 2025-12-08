@@ -162,7 +162,7 @@ export function SkalaPenilaianFormComponent({
                   // Find the original index for editing
                   const originalIndex = skalaPenilaian.findIndex(s => s === skala)
                   return (
-                  <tr key={originalIndex} className={skala.is_lulus ? "bg-green-50" : "bg-red-50"}>
+                    <tr key={originalIndex} className={skala.is_lulus ? "bg-green-50" : "bg-red-50"}>
                     <td className="border px-2 py-1">
                       <Input
                         type="number"
@@ -216,7 +216,8 @@ export function SkalaPenilaianFormComponent({
                       )}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

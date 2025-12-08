@@ -7,6 +7,7 @@ import { Header } from "./header"
 import { User } from "@/types"
 import { cn } from "@/lib/utils"
 import { authService } from "@/lib/api"
+import { useNotifications } from "@/hooks"
 
 export interface DashboardLayoutProps {
   children: ReactNode
@@ -14,11 +15,19 @@ export interface DashboardLayoutProps {
   unreadNotifications?: number
 }
 
-export function DashboardLayout({ children, user, unreadNotifications = 0 }: DashboardLayoutProps) {
+export function DashboardLayout({ children, user, unreadNotifications }: DashboardLayoutProps) {
   const router = useRouter()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [currentUser, setCurrentUser] = useState<User | null>(user || null)
   const [loading, setLoading] = useState(!user)
+
+  // Use notifications hook if unreadNotifications prop is not provided
+  const { unreadCount } = useNotifications()
+  const finalUnreadCount = unreadNotifications !== undefined ? unreadNotifications : unreadCount
+  
+  console.log('📊 [DashboardLayout] unreadNotifications prop:', unreadNotifications)
+  console.log('📊 [DashboardLayout] unreadCount from hook:', unreadCount)
+  console.log('📊 [DashboardLayout] finalUnreadCount:', finalUnreadCount)
   
   useEffect(() => {
     if (!user) {
@@ -62,7 +71,7 @@ export function DashboardLayout({ children, user, unreadNotifications = 0 }: Das
           sidebarCollapsed ? "ml-20" : "ml-72"
         )}
       >
-        <Header user={currentUser} unreadNotifications={unreadNotifications} />
+        <Header user={currentUser} unreadNotifications={finalUnreadCount} />
         <main className="flex-1 p-6">{children}</main>
       </div>
     </div>

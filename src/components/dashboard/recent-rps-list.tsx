@@ -20,7 +20,7 @@ export function RecentRPSList({ items, showDosen = true }: RecentRPSListProps) {
   return (
     <div className="space-y-4">
       {items.map((rps) => {
-        const status = statusConfig[rps.status]
+        const status = statusConfig[rps.status] || statusConfig.draft
         const StatusIcon = status.icon
         
         return (
