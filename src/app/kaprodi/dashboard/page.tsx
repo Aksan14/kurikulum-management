@@ -121,7 +121,7 @@ export default function KaprodiDashboard() {
         if (assignmentResponse.success && assignmentResponse.data && assignmentResponse.data.data) {
           const assignmentData: DashboardAssignment[] = assignmentResponse.data.data.map(a => ({
             id: a.id,
-            cplId: a.cpl_id,
+            cplId: a.cpl_id || '',
             dosenId: a.dosen_id,
             dosenName: a.dosen?.nama || '',
             mataKuliah: a.mata_kuliah || '',

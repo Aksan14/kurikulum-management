@@ -260,7 +260,7 @@ export default function KaprodiMataKuliahDetailPage() {
               </div>
             ) : (
               <div className="text-center py-8">
-                <FileText className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+                <FileText className="h-12 w-12 text-slate-600 mx-auto mb-4" />
                 <h3 className="font-medium text-slate-900">Belum ada RPS</h3>
                 <p className="text-sm text-slate-500 mt-1">
                   Mata kuliah ini belum memiliki RPS

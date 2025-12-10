@@ -17,20 +17,21 @@ import {
 } from "@/components/ui/select"
 import type { SubCPMK } from "@/lib/api/rps"
 
+// Form interface sesuai backend API
 export interface RencanaTugasForm {
   id?: string
   nomor_tugas: number
   judul: string
-  sub_cpmk_ids: string[]
+  sub_cpmk_id: string
   indikator_keberhasilan: string
   batas_waktu_minggu: number
-  batas_waktu_tanggal: string
   petunjuk_pengerjaan: string
   jenis_tugas: 'individu' | 'kelompok'
   luaran_tugas: string
   kriteria_penilaian: string
   teknik_penilaian: string
   bobot: number
+  daftar_rujukan: string
 }
 
 interface RencanaTugasFormProps {
@@ -52,16 +53,16 @@ export function RencanaTugasFormComponent({
     setRencanaTugas([...rencanaTugas, {
       nomor_tugas: nextNum,
       judul: `Tugas ${nextNum}`,
-      sub_cpmk_ids: [],
+      sub_cpmk_id: "",
       indikator_keberhasilan: "",
       batas_waktu_minggu: 4,
-      batas_waktu_tanggal: "",
       petunjuk_pengerjaan: "",
       jenis_tugas: 'individu',
       luaran_tugas: "",
       kriteria_penilaian: "",
-      teknik_penilaian: "Rubrik Penilaian",
-      bobot: 10
+      teknik_penilaian: "Rubrik",
+      bobot: 10,
+      daftar_rujukan: ""
     }])
   }
 
@@ -69,7 +70,7 @@ export function RencanaTugasFormComponent({
     setRencanaTugas(rencanaTugas.filter((_, i) => i !== index))
   }
 
-  const updateRencanaTugas = (index: number, field: keyof RencanaTugasForm, value: string | number | string[]) => {
+  const updateRencanaTugas = (index: number, field: keyof RencanaTugasForm, value: string | number) => {
     const updated = [...rencanaTugas]
     updated[index] = { ...updated[index], [field]: value }
     setRencanaTugas(updated)
@@ -108,7 +109,7 @@ export function RencanaTugasFormComponent({
           </div>
         ) : (
           rencanaTugas.map((tugas, index) => (
-            <Card key={index} className="bg-slate-50">
+            <Card key={index} className="bg-slate-50 dark:bg-slate-800/50">
               <CardContent className="p-4 space-y-4">
                 <div className="flex items-center justify-between">
                   <Badge variant="outline">Tugas #{tugas.nomor_tugas}</Badge>
@@ -125,6 +126,26 @@ export function RencanaTugasFormComponent({
                       onChange={(e) => updateRencanaTugas(index, 'judul', e.target.value)}
                       placeholder="Judul tugas..."
                     />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Sub-CPMK Terkait</Label>
+                    <Select
+                      value={tugas.sub_cpmk_id || "none"}
+                      onValueChange={(value) => updateRencanaTugas(index, 'sub_cpmk_id', value === "none" ? "" : value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Pilih Sub-CPMK" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Tidak Ada</SelectItem>
+                        {subCpmkList.map(subCpmk => (
+                          <SelectItem key={subCpmk.id} value={subCpmk.id}>
+                            {subCpmk.kode} - {subCpmk.deskripsi}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="space-y-2">
@@ -164,30 +185,16 @@ export function RencanaTugasFormComponent({
                       onChange={(e) => updateRencanaTugas(index, 'bobot', parseInt(e.target.value) || 0)}
                     />
                   </div>
-                </div>
 
-                {subCpmkList.length > 0 && (
                   <div className="space-y-2">
-                    <Label>Sub-CPMK Terkait</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {subCpmkList.map(subCpmk => (
-                        <Badge
-                          key={subCpmk.id}
-                          variant={tugas.sub_cpmk_ids.includes(subCpmk.id) ? "default" : "outline"}
-                          className="cursor-pointer"
-                          onClick={() => {
-                            const newIds = tugas.sub_cpmk_ids.includes(subCpmk.id)
-                              ? tugas.sub_cpmk_ids.filter(id => id !== subCpmk.id)
-                              : [...tugas.sub_cpmk_ids, subCpmk.id]
-                            updateRencanaTugas(index, 'sub_cpmk_ids', newIds)
-                          }}
-                        >
-                          {subCpmk.kode}
-                        </Badge>
-                      ))}
-                    </div>
+                    <Label>Teknik Penilaian</Label>
+                    <Input
+                      value={tugas.teknik_penilaian}
+                      onChange={(e) => updateRencanaTugas(index, 'teknik_penilaian', e.target.value)}
+                      placeholder="Contoh: Rubrik"
+                    />
                   </div>
-                )}
+                </div>
 
                 <div className="space-y-2">
                   <Label>Indikator Keberhasilan</Label>
@@ -209,24 +216,13 @@ export function RencanaTugasFormComponent({
                   />
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Luaran Tugas</Label>
-                    <Input
-                      value={tugas.luaran_tugas}
-                      onChange={(e) => updateRencanaTugas(index, 'luaran_tugas', e.target.value)}
-                      placeholder="Contoh: Kode program + Laporan PDF"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Teknik Penilaian</Label>
-                    <Input
-                      value={tugas.teknik_penilaian}
-                      onChange={(e) => updateRencanaTugas(index, 'teknik_penilaian', e.target.value)}
-                      placeholder="Contoh: Rubrik Penilaian"
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <Label>Luaran Tugas</Label>
+                  <Input
+                    value={tugas.luaran_tugas}
+                    onChange={(e) => updateRencanaTugas(index, 'luaran_tugas', e.target.value)}
+                    placeholder="Contoh: Laporan, Kode Program, Presentasi"
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -235,6 +231,16 @@ export function RencanaTugasFormComponent({
                     value={tugas.kriteria_penilaian}
                     onChange={(e) => updateRencanaTugas(index, 'kriteria_penilaian', e.target.value)}
                     placeholder="Kriteria penilaian tugas..."
+                    rows={2}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Daftar Rujukan</Label>
+                  <Textarea
+                    value={tugas.daftar_rujukan}
+                    onChange={(e) => updateRencanaTugas(index, 'daftar_rujukan', e.target.value)}
+                    placeholder="Daftar rujukan/referensi untuk tugas ini..."
                     rows={2}
                   />
                 </div>

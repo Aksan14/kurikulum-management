@@ -50,6 +50,25 @@ export default function DosenSettingsPage() {
     checkAuth()
   }, [checkAuth])
 
+  // Password strength checker
+  const getPasswordStrength = (password: string): { strength: number; label: string; color: string } => {
+    let strength = 0
+    if (password.length >= 6) strength++
+    if (password.length >= 8) strength++
+    if (/[A-Z]/.test(password)) strength++
+    if (/[a-z]/.test(password)) strength++
+    if (/[0-9]/.test(password)) strength++
+    if (/[^A-Za-z0-9]/.test(password)) strength++
+    
+    if (strength <= 2) return { strength: 1, label: 'Lemah', color: 'bg-red-500' }
+    if (strength <= 4) return { strength: 2, label: 'Sedang', color: 'bg-yellow-500' }
+    return { strength: 3, label: 'Kuat', color: 'bg-green-500' }
+  }
+
+  const passwordStrength = getPasswordStrength(passwordForm.newPassword)
+  const passwordsMatch = passwordForm.newPassword && passwordForm.confirmPassword && 
+    passwordForm.newPassword === passwordForm.confirmPassword
+
   const handlePasswordChange = async () => {
     setError(null)
     setSuccess(null)
@@ -78,10 +97,15 @@ export default function DosenSettingsPage() {
     try {
       setSaving(true)
       
-      await authService.changePassword({
+      const response = await authService.changePassword({
         old_password: passwordForm.currentPassword,
         new_password: passwordForm.newPassword
       })
+      
+      if (!response.success) {
+        setError(response.message || 'Gagal mengubah password')
+        return
+      }
       
       setSuccess("Password berhasil diubah")
       setPasswordForm({
@@ -89,8 +113,20 @@ export default function DosenSettingsPage() {
         newPassword: "",
         confirmPassword: ""
       })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal mengubah password')
+    } catch (err: unknown) {
+      // Handle different error types
+      if (err && typeof err === 'object' && 'message' in err) {
+        const errorMessage = (err as { message: string }).message
+        if (errorMessage.includes('401') || errorMessage.toLowerCase().includes('unauthorized') || errorMessage.toLowerCase().includes('incorrect')) {
+          setError('Password saat ini salah')
+        } else if (errorMessage.includes('400')) {
+          setError('Password baru tidak valid')
+        } else {
+          setError(errorMessage)
+        }
+      } else {
+        setError('Gagal mengubah password. Silakan coba lagi.')
+      }
     } finally {
       setSaving(false)
     }
@@ -202,7 +238,25 @@ export default function DosenSettingsPage() {
                   {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
-              <p className="text-xs text-slate-500">Minimal 6 karakter</p>
+              <div className="space-y-1">
+                <p className="text-xs text-slate-500">Minimal 6 karakter</p>
+                {passwordForm.newPassword && (
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full transition-all ${passwordStrength.color}`}
+                        style={{ width: `${(passwordStrength.strength / 3) * 100}%` }}
+                      />
+                    </div>
+                    <span className={`text-xs font-medium ${
+                      passwordStrength.strength === 1 ? 'text-red-500' : 
+                      passwordStrength.strength === 2 ? 'text-yellow-500' : 'text-green-500'
+                    }`}>
+                      {passwordStrength.label}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
             
             <div className="space-y-2">
@@ -214,6 +268,7 @@ export default function DosenSettingsPage() {
                   value={passwordForm.confirmPassword}
                   onChange={(e) => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
                   placeholder="Konfirmasi password baru"
+                  className={passwordForm.confirmPassword ? (passwordsMatch ? 'border-green-500 focus-visible:ring-green-500' : 'border-red-500 focus-visible:ring-red-500') : ''}
                 />
                 <Button
                   type="button"
@@ -225,9 +280,28 @@ export default function DosenSettingsPage() {
                   {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
+              {passwordForm.confirmPassword && (
+                <p className={`text-xs flex items-center gap-1 ${passwordsMatch ? 'text-green-600' : 'text-red-600'}`}>
+                  {passwordsMatch ? (
+                    <>
+                      <Check className="h-3 w-3" />
+                      Password cocok
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="h-3 w-3" />
+                      Password tidak cocok
+                    </>
+                  )}
+                </p>
+              )}
             </div>
 
-            <Button onClick={handlePasswordChange} disabled={saving} className="w-full">
+            <Button 
+              onClick={handlePasswordChange} 
+              disabled={saving || !passwordForm.currentPassword || !passwordForm.newPassword || !passwordsMatch} 
+              className="w-full"
+            >
               {saving ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (

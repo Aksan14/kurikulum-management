@@ -35,9 +35,11 @@ import { usersService, User as ApiUser } from "@/lib/api/users"
 import { mataKuliahService, MataKuliah } from "@/lib/api/mata-kuliah"
 import { cplMKMappingService, CPLMKMapping } from "@/lib/api/cpl-mk-mapping"
 import { authService } from "@/lib/api/auth"
+import { useCustomAlert, AlertContainer } from "@/components/ui/custom-alert"
 
 export default function CreateAssignmentPage() {
   const router = useRouter()
+  const { showAlert } = useCustomAlert()
   
   // Form state
   const [formData, setFormData] = useState({
@@ -116,9 +118,19 @@ export default function CreateAssignmentPage() {
       setErrors({ ...errors, [field]: '' })
     }
 
-    // Fetch mapped CPLs when mata kuliah changes
+    // Fetch mapped CPLs and auto-fill coordinator when mata kuliah changes
     if (field === 'mata_kuliah_id') {
       fetchMappedCPLs(value)
+      
+      // Auto-fill coordinator as the assigned lecturer
+      const selectedMK = mataKuliahList.find(mk => mk.id === value)
+      if (selectedMK?.koordinator_id) {
+        setFormData(prev => ({ ...prev, dosen_id: selectedMK.koordinator_id! }))
+        // Clear any dosen_id error since we're auto-filling it
+        if (errors.dosen_id) {
+          setErrors(prev => ({ ...prev, dosen_id: '' }))
+        }
+      }
     }
   }
 
@@ -236,10 +248,19 @@ export default function CreateAssignmentPage() {
         }
         
         // For now, redirect on partial success. In future, could show detailed results
-        router.push('/kaprodi/assignment')
+        showAlert('success', 'Berhasil!', successMessage)
+        // Add delay to show success message before redirecting
+        setTimeout(() => {
+          router.push('/kaprodi/assignment')
+        }, 2000)
       } else if (skippedAssignments.length > 0) {
-        // All assignments were skipped (already exist)
-        throw new Error(`Semua penugasan sudah ada untuk mata kuliah dan dosen ini`)
+        // All assignments already exist - this is actually a success case
+        console.log('All assignments already exist - treating as success')
+        showAlert('info', 'Informasi', 'Semua penugasan untuk mata kuliah dan dosen ini sudah ada. Tidak ada penugasan baru yang dibuat.')
+        // Add delay to show success message before redirecting
+        setTimeout(() => {
+          router.push('/kaprodi/assignment')
+        }, 2000)
       } else {
         // All assignments failed
         const errorMessages = failedAssignments.map(f => f.error).join('\n')
@@ -424,6 +445,11 @@ export default function CreateAssignmentPage() {
               <div className="space-y-2">
                 <Label htmlFor="dosen_id">
                   Dosen <span className="text-red-500">*</span>
+                  {formData.dosen_id && mataKuliahList.find(mk => mk.id === formData.mata_kuliah_id)?.koordinator_id === formData.dosen_id && (
+                    <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                      Koordinator Mata Kuliah
+                    </span>
+                  )}
                 </Label>
                 <Select 
                   value={formData.dosen_id} 
@@ -439,6 +465,11 @@ export default function CreateAssignmentPage() {
                           <User className="h-4 w-4 text-slate-400" />
                           <span>{dosen.nama}</span>
                           <span className="text-slate-400 text-sm">({dosen.email})</span>
+                          {mataKuliahList.find(mk => mk.id === formData.mata_kuliah_id)?.koordinator_id === dosen.id && (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full ml-2">
+                              Koordinator
+                            </span>
+                          )}
                         </div>
                       </SelectItem>
                     ))}
@@ -448,6 +479,12 @@ export default function CreateAssignmentPage() {
                   <p className="text-sm text-red-500 flex items-center gap-1">
                     <AlertCircle className="h-3 w-3" />
                     {errors.dosen_id}
+                  </p>
+                )}
+                {formData.mata_kuliah_id && mataKuliahList.find(mk => mk.id === formData.mata_kuliah_id)?.koordinator_id && (
+                  <p className="text-sm text-blue-600 flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    Koordinator mata kuliah akan otomatis dipilih sebagai dosen pengampu
                   </p>
                 )}
                 {dosenList.length === 0 && (
@@ -527,6 +564,7 @@ export default function CreateAssignmentPage() {
           </div>
         </form>
       </div>
+      <AlertContainer />
     </DashboardLayout>
   )
 }

@@ -253,8 +253,8 @@ export default function KaprodiProfilePage() {
                     </Button>
                   )}
                 </div>
-                <h2 className="mt-4 text-xl font-semibold text-foreground">{currentUser?.nama}</h2>
-                <p className="text-slate-600 dark:text-slate-400">Ketua Program Studi</p>
+                <h2 className="mt-4 text-xl font-semibold text-slate-900 dark:text-white">{currentUser?.nama}</h2>
+                <p className="text-slate-600 dark:text-slate-300">Ketua Program Studi</p>
                 <Badge className="mt-2 bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
                   <Shield className="mr-1 h-3 w-3" />
                   Kaprodi
@@ -262,18 +262,18 @@ export default function KaprodiProfilePage() {
                 
                 <div className="w-full mt-6 pt-6 border-t space-y-3">
                   <div className="flex items-center gap-2 text-sm">
-                    <Mail className="h-4 w-4 text-slate-500" />
-                    <span className="truncate text-foreground">{currentUser?.email}</span>
+                    <Mail className="h-4 w-4 text-blue-500" />
+                    <span className="truncate text-slate-700 dark:text-slate-200">{currentUser?.email}</span>
                   </div>
                   {currentUser?.phone && (
                     <div className="flex items-center gap-2 text-sm">
-                      <Phone className="h-4 w-4 text-slate-500" />
-                      <span className="text-foreground">{currentUser.phone}</span>
+                      <Phone className="h-4 w-4 text-green-500" />
+                      <span className="text-slate-700 dark:text-slate-200">{currentUser.phone}</span>
                     </div>
                   )}
                   <div className="flex items-center gap-2 text-sm">
-                    <School className="h-4 w-4 text-slate-500" />
-                    <span className="text-foreground">Teknik Informatika</span>
+                    <School className="h-4 w-4 text-purple-500" />
+                    <span className="text-slate-700 dark:text-slate-200">Teknik Informatika</span>
                   </div>
                 </div>
               </div>
@@ -314,16 +314,16 @@ export default function KaprodiProfilePage() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2 text-foreground">
+                <CardTitle className="text-lg flex items-center gap-2 text-slate-900 dark:text-white">
                   <User className="h-5 w-5" />
                   Informasi Profil
                 </CardTitle>
-                <CardDescription className="text-slate-600 dark:text-slate-400">Data pribadi dan kontak Anda</CardDescription>
+                <CardDescription className="text-slate-600 dark:text-slate-300">Data pribadi dan kontak Anda</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="nama" className="text-foreground font-medium">Nama Lengkap</Label>
+                    <Label htmlFor="nama" className="text-slate-700 dark:text-slate-200 font-medium">Nama Lengkap</Label>
                     {isEditing ? (
                       <Input
                         id="nama"
@@ -332,18 +332,18 @@ export default function KaprodiProfilePage() {
                         placeholder="Masukkan nama lengkap"
                       />
                     ) : (
-                      <p className="text-sm p-2 bg-slate-100 dark:bg-slate-800 rounded-md text-foreground">{currentUser?.nama || "-"}</p>
+                      <p className="text-sm p-2 bg-slate-100 dark:bg-slate-800 rounded-md text-slate-900 dark:text-white">{currentUser?.nama || "-"}</p>
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="email" className="text-foreground font-medium">Email</Label>
-                    <p className="text-sm p-2 bg-slate-100 dark:bg-slate-800 rounded-md text-foreground">{currentUser?.email || "-"}</p>
+                    <Label htmlFor="email" className="text-slate-700 dark:text-slate-200 font-medium">Email</Label>
+                    <p className="text-sm p-2 bg-slate-100 dark:bg-slate-800 rounded-md text-slate-900 dark:text-white">{currentUser?.email || "-"}</p>
                     {isEditing && (
-                      <p className="text-xs text-slate-500">Email tidak dapat diubah</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Email tidak dapat diubah</p>
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="phone" className="text-foreground font-medium">Telepon</Label>
+                    <Label htmlFor="phone" className="text-slate-700 dark:text-slate-200 font-medium">Telepon</Label>
                     {isEditing ? (
                       <Input
                         id="phone"
@@ -352,12 +352,12 @@ export default function KaprodiProfilePage() {
                         placeholder="Contoh: 08123456789"
                       />
                     ) : (
-                      <p className="text-sm p-2 bg-slate-100 dark:bg-slate-800 rounded-md text-foreground">{currentUser?.phone || "-"}</p>
+                      <p className="text-sm p-2 bg-slate-100 dark:bg-slate-800 rounded-md text-slate-900 dark:text-white">{currentUser?.phone || "-"}</p>
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-foreground font-medium">Role</Label>
-                    <p className="text-sm p-2 bg-slate-100 dark:bg-slate-800 rounded-md capitalize text-foreground">{currentUser?.role || "-"}</p>
+                    <Label className="text-slate-700 dark:text-slate-200 font-medium">Role</Label>
+                    <p className="text-sm p-2 bg-slate-100 dark:bg-slate-800 rounded-md capitalize text-slate-900 dark:text-white">{currentUser?.role || "-"}</p>
                   </div>
                 </div>
               </CardContent>

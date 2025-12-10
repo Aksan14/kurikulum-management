@@ -108,7 +108,7 @@ export default function CPLDetailPage() {
             if (assignmentsResponse.success && assignmentsResponse.data && assignmentsResponse.data.data) {
               setRelatedAssignments(assignmentsResponse.data.data.map(a => ({
                 id: a.id,
-                cplId: a.cpl_id,
+                cplId: a.cpl_id || '',
                 dosenId: a.dosen_id,
                 dosenName: a.dosen?.nama || 'Unknown',
                 mataKuliah: a.mata_kuliah || '',

@@ -447,7 +447,7 @@ export default function AssignmentPage() {
           <CardContent>
             {filteredAssignments.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
-                <Users className="h-12 w-12 text-slate-300 mb-4" />
+                <Users className="h-12 w-12 text-slate-600 mb-4" />
                 <h3 className="text-lg font-medium text-slate-900">Belum ada penugasan</h3>
                 <p className="text-slate-500 mt-1">
                   {searchQuery || statusFilter !== 'all' 

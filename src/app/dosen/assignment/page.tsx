@@ -312,7 +312,8 @@ export default function DosenAssignmentPage() {
         const rps = response.data.data[0]
         router.push(`/dosen/rps/${rps.id}`)
       } else {
-        alert("RPS belum dibuat untuk mata kuliah ini")
+        // RPS doesn't exist, redirect to create page
+        router.push(`/dosen/rps/create`)
       }
     } catch (err) {
       console.error("Error fetching RPS:", err)
@@ -493,7 +494,7 @@ export default function DosenAssignmentPage() {
           {filteredAssignments.length === 0 ? (
             <Card>
               <CardContent className="p-8 text-center">
-                <ClipboardList className="mx-auto h-12 w-12 text-slate-300" />
+                <ClipboardList className="mx-auto h-12 w-12 text-slate-600" />
                 <p className="mt-4 text-lg font-medium text-slate-900">Tidak Ada Tugas</p>
                 <p className="text-slate-600">
                   {searchQuery || filterStatus !== 'all'
@@ -639,7 +640,7 @@ export default function DosenAssignmentPage() {
                           className="bg-blue-600 hover:bg-blue-700"
                         >
                           <ArrowRight className="h-4 w-4 mr-1" />
-                          Buat RPS
+                          Kelola RPS: {mataKuliahAssignment.mataKuliah}
                         </Button>
                       )}
 

@@ -20,35 +20,36 @@ export interface CPMK {
   created_at?: string;
 }
 
+// Rencana Pembelajaran - sesuai backend API baru
 export interface RencanaPembelajaran {
   id: string;
   rps_id: string;
-  pertemuan: number;
-  minggu_mulai?: number;
-  minggu_selesai?: number;
-  topik?: string;
+  minggu_ke: number;
+  sub_cpmk_id?: string;
+  sub_cpmk?: SubCPMK;
+  topik: string;
   sub_topik?: string[];
-  cpmk_ids?: string[];
-  sub_cpmk_ids?: string[];
-  indikator?: string[];
-  metode?: string;
-  media_lms?: string;
-  waktu?: number;
-  waktu_tm?: number;
-  waktu_bm?: number;
-  waktu_pt?: number;
-  materi?: string;
-  teknik_penilaian?: string;
-  kriteria_penilaian?: string;
-  bobot_penilaian?: number;
-  // Legacy fields
-  kemampuan_akhir?: string;
-  waktu_menit?: number;
-  metode_pembelajaran?: string;
-  pengalaman_belajar?: string;
-  bobot_nilai?: number;
-  referensi?: string;
+  metode_pembelajaran: string;
+  waktu_menit: number;
+  teknik_kriteria: string;
+  bobot_persen: number;
+  created_at?: string;
+  updated_at?: string;
 }
+
+// Request types untuk Rencana Pembelajaran
+export interface CreateRencanaPembelajaranRequest {
+  minggu_ke: number;
+  sub_cpmk_id?: string;
+  topik: string;
+  sub_topik?: string[];
+  metode_pembelajaran: string;
+  waktu_menit: number;
+  teknik_kriteria: string;
+  bobot_persen: number;
+}
+
+export interface UpdateRencanaPembelajaranRequest extends Partial<CreateRencanaPembelajaranRequest> {}
 
 export interface BahanBacaan {
   id: string;
@@ -109,43 +110,43 @@ export interface UpdateSubCPMKRequest {
   urutan?: number;
 }
 
-// Rencana Tugas Types
+// Rencana Tugas Types - sesuai backend API
 export interface RencanaTugas {
   id: string;
   rps_id: string;
   nomor_tugas: number;
   judul: string;
-  sub_cpmk_ids?: string[];
+  sub_cpmk_id?: string;
+  sub_cpmk?: SubCPMK;
   indikator_keberhasilan?: string;
   batas_waktu_minggu?: number;
-  batas_waktu_tanggal?: string;
   petunjuk_pengerjaan?: string;
-  jenis_tugas: 'Individu' | 'Kelompok';
+  jenis_tugas: 'individu' | 'kelompok';
   luaran_tugas?: string;
   kriteria_penilaian?: string;
   teknik_penilaian?: string;
   bobot: number;
+  daftar_rujukan?: string[] | null;
   created_at?: string;
+  updated_at?: string;
 }
 
 export interface CreateRencanaTugasRequest {
   nomor_tugas: number;
   judul: string;
-  sub_cpmk_ids?: string[];
+  sub_cpmk_id?: string;
   indikator_keberhasilan?: string;
   batas_waktu_minggu?: number;
-  batas_waktu_tanggal?: string;
   petunjuk_pengerjaan?: string;
-  jenis_tugas: 'Individu' | 'Kelompok';
+  jenis_tugas: 'individu' | 'kelompok';
   luaran_tugas?: string;
   kriteria_penilaian?: string;
   teknik_penilaian?: string;
   bobot: number;
+  daftar_rujukan?: string;
 }
 
 export interface UpdateRencanaTugasRequest extends Partial<CreateRencanaTugasRequest> {}
-
-// Analisis Ketercapaian CPL Types
 export interface AnalisisKetercapaianCPL {
   id: string;
   rps_id: string;
@@ -276,6 +277,15 @@ export interface UpdateRPSRequest {
   tahun_akademik?: string;
   tahun_ajaran?: string;
   semester_type?: 'ganjil' | 'genap';
+  tanggal_penyusunan?: string;
+  penyusun_nama?: string;
+  penyusun_nidn?: string;
+  koordinator_rmk_nama?: string;
+  koordinator_rmk_nidn?: string;
+  kaprodi_nama?: string;
+  kaprodi_nidn?: string;
+  fakultas?: string;
+  program_studi?: string;
   deskripsi?: string;
   deskripsi_mk?: string;
   tujuan?: string;
@@ -315,30 +325,6 @@ export interface UpdateCPMKRequest {
   cpl_ids?: string[];
   urutan?: number;
 }
-
-// Rencana Pembelajaran Types - sesuai API docs
-export interface CreateRencanaPembelajaranRequest {
-  pertemuan: number;
-  minggu_mulai: number;
-  minggu_selesai?: number;
-  topik: string;
-  sub_topik?: string[];
-  cpmk_ids?: string[];
-  sub_cpmk_ids?: string[];
-  indikator?: string[];
-  metode?: string;
-  media_lms?: string;
-  waktu?: number;
-  waktu_tm?: number;
-  waktu_bm?: number;
-  waktu_pt?: number;
-  materi?: string;
-  teknik_penilaian?: string;
-  kriteria_penilaian?: string;
-  bobot_penilaian?: number;
-}
-
-export interface UpdateRencanaPembelajaranRequest extends Partial<CreateRencanaPembelajaranRequest> {}
 
 // Bahan Bacaan Types - sesuai API docs
 export interface CreateBahanBacaanRequest {

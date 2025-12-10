@@ -522,7 +522,7 @@ export default function BackupRestorePage() {
           <CardContent>
             {backups.length === 0 ? (
               <div className="text-center py-12">
-                <Archive className="h-12 w-12 text-slate-400 mx-auto mb-4" />
+                <Archive className="h-12 w-12 text-slate-600 mx-auto mb-4" />
                 <p className="text-slate-600">Belum ada backup</p>
                 <p className="text-sm text-slate-500 mt-1">Buat backup pertama Anda</p>
               </div>

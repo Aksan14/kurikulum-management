@@ -269,7 +269,7 @@ export default function DosenNotificationsPage() {
           <CardContent>
             {notifications.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
-                <BellOff className="h-12 w-12 text-slate-300 mb-3" />
+                <BellOff className="h-12 w-12 text-slate-600 mb-3" />
                 <p className="text-lg font-medium text-slate-900">Tidak Ada Notifikasi</p>
                 <p className="text-slate-600">Anda tidak memiliki notifikasi saat ini</p>
               </div>

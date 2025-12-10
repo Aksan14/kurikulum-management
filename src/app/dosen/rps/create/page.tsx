@@ -19,7 +19,8 @@ import {
   GraduationCap,
   Calendar,
   ListChecks,
-  XCircle
+  XCircle,
+  Check
 } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -36,11 +37,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { AlertContainer } from "@/components/ui/custom-alert"
 import { rpsService, cplService, mataKuliahService, authService } from "@/lib/api"
+import { cplMKMappingService } from "@/lib/api/cpl-mk-mapping"
 import { ApiError } from "@/lib/api/client"
 import type { CPL } from "@/lib/api/cpl"
 import type { MataKuliah } from "@/lib/api/mata-kuliah"
 import Link from "next/link"
+import { useCustomAlert } from "@/components/ui/custom-alert"
 
 interface CPMKForm {
   kode: string
@@ -55,25 +59,16 @@ interface SubCPMKForm {
   urutan: number
 }
 
+// Rencana Pembelajaran Form - sesuai backend API baru
 interface RencanaPembelajaranForm {
-  pertemuan: number
-  minggu_mulai: number
-  minggu_selesai: number
+  minggu_ke: number
+  sub_cpmk_id: string
   topik: string
   sub_topik: string[]
-  cpmk_ids: string[]
-  sub_cpmk_ids: string[]
-  indikator: string[]
-  metode: string
-  media_lms: string
-  waktu: number
-  waktu_tm: number
-  waktu_bm: number
-  waktu_pt: number
-  materi: string
-  teknik_penilaian: string
-  kriteria_penilaian: string
-  bobot_penilaian: number
+  metode_pembelajaran: string
+  waktu_menit: number
+  teknik_kriteria: string
+  bobot_persen: number
 }
 
 interface BahanBacaanForm {
@@ -89,33 +84,20 @@ interface BahanBacaanForm {
   urutan: number
 }
 
-// Evaluasi - sesuai backend API
-interface EvaluasiForm {
-  komponen: string
-  teknik_penilaian: string
-  instrumen: string
-  bobot: number
-  minggu_mulai: number
-  minggu_selesai: number
-  topik_materi: string
-  jenis_assessment: string
-  urutan: number
-}
-
-// Rencana Tugas
+// Rencana Tugas - sesuai backend API
 interface RencanaTugasForm {
   nomor_tugas: number
   judul: string
-  sub_cpmk_ids: string[]
+  sub_cpmk_id: string
   indikator_keberhasilan: string
   batas_waktu_minggu: number
-  batas_waktu_tanggal: string
   petunjuk_pengerjaan: string
-  jenis_tugas: 'Individu' | 'Kelompok'
+  jenis_tugas: 'individu' | 'kelompok'
   luaran_tugas: string
   kriteria_penilaian: string
   teknik_penilaian: string
   bobot: number
+  daftar_rujukan: string
 }
 
 // Analisis Ketercapaian
@@ -130,17 +112,9 @@ interface AnalisisKetercapaianForm {
   bobot_kontribusi: number
 }
 
-// Skala Penilaian
-interface SkalaPenilaianForm {
-  nilai_min: number
-  nilai_max: number
-  huruf_mutu: string
-  bobot_nilai: number
-  is_lulus: boolean
-}
-
 export default function CreateRPSPage() {
   const router = useRouter()
+  const { showAlert } = useCustomAlert()
   
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -148,6 +122,7 @@ export default function CreateRPSPage() {
   
   const [mataKuliahList, setMataKuliahList] = useState<MataKuliah[]>([])
   const [cplList, setCplList] = useState<CPL[]>([])
+  const [relatedCplList, setRelatedCplList] = useState<CPL[]>([]) // CPL yang terkait dengan mata kuliah
   const [activeTab, setActiveTab] = useState("info")
   
   // Step tracking - untuk melacak data yang sudah dikirim
@@ -156,8 +131,8 @@ export default function CreateRPSPage() {
   const [stepErrors, setStepErrors] = useState<Record<string, string[]>>({})
   const [createdCpmkIds, setCreatedCpmkIds] = useState<Record<string, string>>({}) // Map index to created CPMK ID
   
-  // Urutan tabs
-  const tabOrder = ["info", "cpmk", "subcpmk", "rencana", "tugas", "analisis", "pustaka", "evaluasi", "skala"]
+  // Urutan tabs (tanpa evaluasi dan skala penilaian)
+  const tabOrder = ["info", "cpmk", "subcpmk", "rencana", "tugas", "analisis", "pustaka"]
   
   // Form state
   const [formData, setFormData] = useState({
@@ -191,32 +166,12 @@ export default function CreateRPSPage() {
   const [bahanBacaan, setBahanBacaan] = useState<BahanBacaanForm[]>([
     { judul: "", penulis: "", tahun: new Date().getFullYear(), penerbit: "", jenis: 'buku', isbn: "", halaman: "", url: "", is_wajib: true, urutan: 1 }
   ])
-  
-  const [evaluasi, setEvaluasi] = useState<EvaluasiForm[]>([
-    { komponen: "UTS", teknik_penilaian: "Tes Tertulis", instrumen: "Soal Essay", bobot: 30, minggu_mulai: 1, minggu_selesai: 8, topik_materi: "", jenis_assessment: "Sumatif", urutan: 1 },
-    { komponen: "UAS", teknik_penilaian: "Tes Tertulis", instrumen: "Soal Essay", bobot: 40, minggu_mulai: 9, minggu_selesai: 16, topik_materi: "", jenis_assessment: "Sumatif", urutan: 2 },
-    { komponen: "Tugas", teknik_penilaian: "Penugasan", instrumen: "Rubrik Penilaian", bobot: 20, minggu_mulai: 1, minggu_selesai: 16, topik_materi: "", jenis_assessment: "Formatif", urutan: 3 },
-    { komponen: "Kehadiran", teknik_penilaian: "Observasi", instrumen: "Daftar Hadir", bobot: 10, minggu_mulai: 1, minggu_selesai: 16, topik_materi: "", jenis_assessment: "Formatif", urutan: 4 }
-  ])
 
   // Rencana Tugas state
   const [rencanaTugas, setRencanaTugas] = useState<RencanaTugasForm[]>([])
 
   // Analisis Ketercapaian state
   const [analisisKetercapaian, setAnalisisKetercapaian] = useState<AnalisisKetercapaianForm[]>([])
-
-  // Skala Penilaian state
-  const [skalaPenilaian, setSkalaPenilaian] = useState<SkalaPenilaianForm[]>([
-    { nilai_min: 85, nilai_max: 100, huruf_mutu: 'A', bobot_nilai: 4.0, is_lulus: true },
-    { nilai_min: 80, nilai_max: 84, huruf_mutu: 'A-', bobot_nilai: 3.7, is_lulus: true },
-    { nilai_min: 75, nilai_max: 79, huruf_mutu: 'B+', bobot_nilai: 3.3, is_lulus: true },
-    { nilai_min: 70, nilai_max: 74, huruf_mutu: 'B', bobot_nilai: 3.0, is_lulus: true },
-    { nilai_min: 65, nilai_max: 69, huruf_mutu: 'B-', bobot_nilai: 2.7, is_lulus: true },
-    { nilai_min: 60, nilai_max: 64, huruf_mutu: 'C+', bobot_nilai: 2.3, is_lulus: true },
-    { nilai_min: 55, nilai_max: 59, huruf_mutu: 'C', bobot_nilai: 2.0, is_lulus: true },
-    { nilai_min: 50, nilai_max: 54, huruf_mutu: 'D', bobot_nilai: 1.0, is_lulus: false },
-    { nilai_min: 0, nilai_max: 49, huruf_mutu: 'E', bobot_nilai: 0.0, is_lulus: false }
-  ])
   
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [expandedWeek, setExpandedWeek] = useState<number | null>(1)
@@ -231,9 +186,10 @@ export default function CreateRPSPage() {
       setLoading(true)
       setError(null)
       
-      const [mkResponse, cplResponse] = await Promise.all([
+      const [mkResponse, cplResponse, rpsResponse] = await Promise.all([
         mataKuliahService.getMy(),
-        cplService.getActive()
+        cplService.getActive(),
+        rpsService.getMy()
       ])
       
       // Handle mata kuliah response
@@ -245,7 +201,20 @@ export default function CreateRPSPage() {
           mkData = mkResponse.data.data
         }
       }
-      setMataKuliahList(mkData)
+      
+      // Handle RPS response to filter mata kuliah that already have RPS
+      let existingRpsIds: string[] = []
+      if (rpsResponse.data) {
+        if (Array.isArray(rpsResponse.data)) {
+          existingRpsIds = rpsResponse.data.map((rps: any) => rps.mata_kuliah_id)
+        } else if (rpsResponse.data.data && Array.isArray(rpsResponse.data.data)) {
+          existingRpsIds = rpsResponse.data.data.map((rps: any) => rps.mata_kuliah_id)
+        }
+      }
+      
+      // Filter mata kuliah that don't have RPS yet
+      const availableMkData = mkData.filter(mk => !existingRpsIds.includes(mk.id))
+      setMataKuliahList(availableMkData)
       
       // Handle CPL response  
       let cplData: CPL[] = []
@@ -258,31 +227,8 @@ export default function CreateRPSPage() {
       }
       setCplList(cplData)
       
-      // Initialize rencana pembelajaran (16 weeks)
-      const initialRP: RencanaPembelajaranForm[] = []
-      for (let i = 1; i <= 16; i++) {
-        initialRP.push({
-          pertemuan: i,
-          minggu_mulai: i,
-          minggu_selesai: i,
-          topik: "",
-          sub_topik: [],
-          cpmk_ids: [],
-          sub_cpmk_ids: [],
-          indikator: [],
-          metode: "Ceramah dan Praktik",
-          media_lms: "Google Classroom",
-          waktu: 150,
-          waktu_tm: 2,
-          waktu_bm: 3,
-          waktu_pt: 2,
-          materi: "",
-          teknik_penilaian: "",
-          kriteria_penilaian: "",
-          bobot_penilaian: 0
-        })
-      }
-      setRencanaPembelajaran(initialRP)
+      // Initialize empty rencana pembelajaran - user adds as needed
+      setRencanaPembelajaran([])
       
     } catch (err) {
       console.error('Error fetching initial data:', err)
@@ -295,6 +241,41 @@ export default function CreateRPSPage() {
   useEffect(() => {
     fetchInitialData()
   }, [fetchInitialData])
+
+  // Fetch CPL terkait mata kuliah saat mata_kuliah_id berubah
+  useEffect(() => {
+    const fetchRelatedCPL = async () => {
+      if (!formData.mata_kuliah_id) {
+        setRelatedCplList([])
+        return
+      }
+      
+      try {
+        const mappingResponse = await cplMKMappingService.getByMK(formData.mata_kuliah_id)
+        if (mappingResponse.success && mappingResponse.data) {
+          const responseData = mappingResponse.data as { data?: Array<{ cpl_id: string }> } | Array<{ cpl_id: string }>
+          const mappings: Array<{ cpl_id: string }> = Array.isArray(responseData) 
+            ? responseData 
+            : (responseData.data || [])
+          
+          // Filter CPL yang ada di mapping
+          const relatedCplIds = mappings.map(m => m.cpl_id)
+          const filteredCplList = cplList.filter(cpl => relatedCplIds.includes(cpl.id))
+          setRelatedCplList(filteredCplList)
+          console.log('✅ Loaded', filteredCplList.length, 'CPL terkait dengan mata kuliah')
+        } else {
+          // Jika tidak ada mapping, gunakan semua CPL
+          setRelatedCplList(cplList)
+        }
+      } catch (err) {
+        console.error('Error loading CPL-MK mapping:', err)
+        // Fallback ke semua CPL jika gagal
+        setRelatedCplList(cplList)
+      }
+    }
+    
+    fetchRelatedCPL()
+  }, [formData.mata_kuliah_id, cplList])
 
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {}
@@ -330,35 +311,11 @@ export default function CreateRPSPage() {
         errors.cpmk_cpl = "Semua CPMK harus dipetakan ke minimal 1 CPL"
       }
     }
-    
-    // Validasi Evaluasi
-    const totalBobot = evaluasi.reduce((sum, e) => sum + (e.bobot || 0), 0)
-    if (totalBobot !== 100) {
-      errors.evaluasi = `Total bobot evaluasi harus 100% (saat ini ${totalBobot}%)`
-    }
 
     // Validasi Rencana Pembelajaran
     const validRP = rencanaPembelajaran.filter(rp => rp.topik && rp.topik.trim())
     if (validRP.length === 0) {
       errors.rencana = "Minimal harus ada 1 rencana pembelajaran dengan topik"
-    }
-
-    // Validasi Skala Penilaian
-    if (!skalaPenilaian || skalaPenilaian.length === 0) {
-      errors.skala = "Minimal harus ada 1 skala penilaian"
-    } else {
-      // Validasi range nilai tidak overlap dan lengkap
-      const sortedSkala = [...skalaPenilaian].sort((a, b) => b.nilai_min - a.nilai_min)
-      for (let i = 0; i < sortedSkala.length; i++) {
-        if (sortedSkala[i].nilai_min > sortedSkala[i].nilai_max) {
-          errors.skala = "Nilai minimum tidak boleh lebih besar dari nilai maksimum"
-          break
-        }
-        if (!sortedSkala[i].huruf_mutu || !sortedSkala[i].huruf_mutu.trim()) {
-          errors.skala = "Semua skala penilaian harus memiliki huruf mutu"
-          break
-        }
-      }
     }
     
     setFormErrors(errors)
@@ -484,19 +441,6 @@ export default function CreateRPSPage() {
         const emptyBahan = bahanBacaan.filter(b => b.judul?.trim() && !b.penulis?.trim())
         if (emptyBahan.length > 0) {
           errors.push(`${emptyBahan.length} bahan bacaan belum lengkap (perlu penulis)`)
-        }
-        break
-        
-      case "evaluasi":
-        const totalBobot = evaluasi.reduce((sum, e) => sum + (e.bobot || 0), 0)
-        if (totalBobot !== 100) {
-          errors.push(`Total bobot evaluasi harus 100% (saat ini ${totalBobot}%)`)
-        }
-        break
-        
-      case "skala":
-        if (skalaPenilaian.length === 0) {
-          errors.push("Minimal harus ada 1 skala penilaian")
         }
         break
     }
@@ -642,40 +586,30 @@ export default function CreateRPSPage() {
             if (rp.topik?.trim()) {
               try {
                 const requestData = {
-                  pertemuan: rp.pertemuan,
-                  minggu_mulai: rp.minggu_mulai,
-                  minggu_selesai: rp.minggu_selesai || undefined,
+                  minggu_ke: rp.minggu_ke,
+                  sub_cpmk_id: rp.sub_cpmk_id || undefined,
                   topik: rp.topik.trim(),
                   sub_topik: rp.sub_topik.length > 0 ? rp.sub_topik : undefined,
-                  cpmk_ids: rp.cpmk_ids.length > 0 ? rp.cpmk_ids : undefined,
-                  sub_cpmk_ids: rp.sub_cpmk_ids.length > 0 ? rp.sub_cpmk_ids : undefined,
-                  indikator: rp.indikator.length > 0 ? rp.indikator : undefined,
-                  metode: rp.metode || undefined,
-                  media_lms: rp.media_lms || undefined,
-                  waktu: rp.waktu > 0 ? rp.waktu : undefined,
-                  waktu_tm: rp.waktu_tm > 0 ? rp.waktu_tm : undefined,
-                  waktu_bm: rp.waktu_bm > 0 ? rp.waktu_bm : undefined,
-                  waktu_pt: rp.waktu_pt > 0 ? rp.waktu_pt : undefined,
-                  materi: rp.materi || undefined,
-                  teknik_penilaian: rp.teknik_penilaian || undefined,
-                  kriteria_penilaian: rp.kriteria_penilaian || undefined,
-                  bobot_penilaian: rp.bobot_penilaian > 0 ? rp.bobot_penilaian : undefined
+                  metode_pembelajaran: rp.metode_pembelajaran || "Tatap Muka",
+                  waktu_menit: rp.waktu_menit > 0 ? rp.waktu_menit : 150,
+                  teknik_kriteria: rp.teknik_kriteria || "",
+                  bobot_persen: rp.bobot_persen > 0 ? rp.bobot_persen : 0
                 }
                 
-                console.log(`📤 Mengirim rencana pembelajaran pertemuan ${rp.pertemuan}:`, requestData)
+                console.log(`📤 Mengirim rencana pembelajaran minggu ${rp.minggu_ke}:`, requestData)
                 
                 const rpRes = await rpsService.rencanaPembelajaran.create(rpsId, requestData)
                 if (!rpRes.success) {
-                  const errorDetail = rpRes.message || rpRes.error || 'Gagal menyimpan'
-                  errors.push(`Pertemuan ${rp.pertemuan} (${rp.topik}): ${errorDetail}`)
-                  console.error(`❌ Pertemuan ${rp.pertemuan} gagal:`, rpRes)
+                  const errorDetail = rpRes.message || 'Gagal menyimpan'
+                  errors.push(`Minggu ${rp.minggu_ke} (${rp.topik}): ${errorDetail}`)
+                  console.error(`❌ Minggu ${rp.minggu_ke} gagal:`, rpRes)
                 } else {
-                  console.log(`✅ Pertemuan ${rp.pertemuan} berhasil`)
+                  console.log(`✅ Minggu ${rp.minggu_ke} berhasil`)
                 }
               } catch (err) {
                 const errorMsg = getErrorMessage(err)
-                errors.push(`Pertemuan ${rp.pertemuan} (${rp.topik}): ${errorMsg}`)
-                console.error(`❌ Error pertemuan ${rp.pertemuan}:`, err)
+                errors.push(`Minggu ${rp.minggu_ke} (${rp.topik}): ${errorMsg}`)
+                console.error(`❌ Error minggu ${rp.minggu_ke}:`, err)
               }
             }
           }
@@ -694,16 +628,16 @@ export default function CreateRPSPage() {
                 const tugasRes = await rpsService.rencanaTugas?.create(rpsId, {
                   nomor_tugas: tugas.nomor_tugas,
                   judul: tugas.judul.trim(),
-                  sub_cpmk_ids: tugas.sub_cpmk_ids.length > 0 ? tugas.sub_cpmk_ids : undefined,
+                  sub_cpmk_id: tugas.sub_cpmk_id || undefined,
                   indikator_keberhasilan: tugas.indikator_keberhasilan || undefined,
                   batas_waktu_minggu: tugas.batas_waktu_minggu > 0 ? tugas.batas_waktu_minggu : undefined,
-                  batas_waktu_tanggal: tugas.batas_waktu_tanggal || undefined,
                   petunjuk_pengerjaan: tugas.petunjuk_pengerjaan || undefined,
                   jenis_tugas: tugas.jenis_tugas,
                   luaran_tugas: tugas.luaran_tugas || undefined,
                   kriteria_penilaian: tugas.kriteria_penilaian || undefined,
                   teknik_penilaian: tugas.teknik_penilaian || undefined,
-                  bobot: tugas.bobot
+                  bobot: tugas.bobot,
+                  daftar_rujukan: tugas.daftar_rujukan?.trim() || undefined
                 })
                 if (tugasRes && !tugasRes.success) {
                   errors.push(`Tugas "${tugas.judul}": ${tugasRes.message || 'Gagal'}`)
@@ -764,10 +698,12 @@ export default function CreateRPSPage() {
                   judul: bb.judul.trim(),
                   penulis: bb.penulis || undefined,
                   tahun: bb.tahun > 0 ? bb.tahun : undefined,
+                  penerbit: bb.penerbit || undefined,
                   jenis: bb.jenis || undefined,
                   isbn: bb.isbn || undefined,
                   halaman: bb.halaman || undefined,
                   url: bb.url || undefined,
+                  is_wajib: bb.is_wajib,
                   urutan: i + 1
                 })
                 if (!bbRes.success) {
@@ -787,67 +723,6 @@ export default function CreateRPSPage() {
           if (!rpsId) {
             errors.push("RPS belum dibuat")
             break
-          }
-          
-          // Validasi total bobot harus 100%
-          const totalBobot = evaluasi.reduce((sum, e) => sum + (e.bobot || 0), 0)
-          if (totalBobot !== 100) {
-            errors.push(`Total bobot evaluasi harus 100% (saat ini ${totalBobot}%). Tidak dapat menyimpan.`)
-            break
-          }
-          
-          for (const ev of evaluasi) {
-            if (ev.komponen && ev.bobot > 0) {
-              try {
-                const evRes = await rpsService.evaluasi.create(rpsId, {
-                  komponen: ev.komponen,
-                  teknik_penilaian: ev.teknik_penilaian || undefined,
-                  instrumen: ev.instrumen || undefined,
-                  bobot: ev.bobot,
-                  minggu_mulai: ev.minggu_mulai || undefined,
-                  minggu_selesai: ev.minggu_selesai || undefined,
-                  topik_materi: ev.topik_materi || undefined,
-                  jenis_assessment: ev.jenis_assessment || undefined,
-                  urutan: ev.urutan || undefined
-                })
-                if (!evRes.success) {
-                  errors.push(`Evaluasi ${ev.komponen}: ${evRes.message || 'Gagal'}`)
-                } else {
-                  console.log(`✅ Evaluasi ${ev.komponen} berhasil`)
-                }
-              } catch (err) {
-                errors.push(`Evaluasi ${ev.komponen}: ${getErrorMessage(err)}`)
-              }
-            }
-          }
-          break
-        }
-        
-        case "skala": {
-          if (!rpsId) {
-            errors.push("RPS belum dibuat")
-            break
-          }
-          
-          if (skalaPenilaian.length > 0) {
-            try {
-              const skalaRes = await rpsService.skalaPenilaian?.batchCreate(rpsId, {
-                skala_penilaian: skalaPenilaian.map(s => ({
-                  nilai_min: s.nilai_min,
-                  nilai_max: s.nilai_max,
-                  huruf_mutu: s.huruf_mutu,
-                  bobot_nilai: s.bobot_nilai,
-                  is_lulus: s.is_lulus
-                }))
-              })
-              if (skalaRes && !skalaRes.success) {
-                errors.push(`Skala Penilaian: ${skalaRes.message || 'Gagal'}`)
-              } else {
-                console.log(`✅ Skala Penilaian berhasil`)
-              }
-            } catch (err) {
-              errors.push(`Skala Penilaian: ${getErrorMessage(err)}`)
-            }
           }
           break
         }
@@ -939,10 +814,13 @@ export default function CreateRPSPage() {
         setCompletedSteps(prev => [...prev, activeTab])
       }
       
-      alert('RPS berhasil disimpan!')
-      if (rpsId) {
-        router.push(`/dosen/rps/${rpsId}`)
-      }
+      showAlert('success', 'Berhasil!', 'RPS berhasil disimpan!')
+      // Add delay to show success message before redirecting
+      setTimeout(() => {
+        if (rpsId) {
+          router.push(`/dosen/rps/${rpsId}`)
+        }
+      }, 2000)
     }
   }
 
@@ -963,9 +841,7 @@ export default function CreateRPSPage() {
       rencana: "Rencana Pembelajaran",
       tugas: "Rencana Tugas",
       analisis: "Analisis",
-      pustaka: "Pustaka",
-      evaluasi: "Evaluasi",
-      skala: "Skala Penilaian"
+      pustaka: "Pustaka"
     }
     return labels[tab] || tab
   }
@@ -1047,12 +923,25 @@ export default function CreateRPSPage() {
     updated[index] = { ...updated[index], [field]: value }
     setRencanaPembelajaran(updated)
   }
-
-  // Evaluasi management
-  const updateEvaluasi = (index: number, field: keyof EvaluasiForm, value: string | number) => {
-    const updated = [...evaluasi]
-    updated[index] = { ...updated[index], [field]: value }
-    setEvaluasi(updated)
+  
+  const addRencanaPembelajaran = () => {
+    const nextMinggu = rencanaPembelajaran.length > 0 
+      ? Math.max(...rencanaPembelajaran.map(rp => rp.minggu_ke)) + 1 
+      : 1
+    setRencanaPembelajaran([...rencanaPembelajaran, {
+      minggu_ke: nextMinggu,
+      sub_cpmk_id: '',
+      topik: '',
+      sub_topik: [],
+      metode_pembelajaran: 'Tatap Muka: Ceramah, Diskusi',
+      waktu_menit: 150,
+      teknik_kriteria: '',
+      bobot_persen: 0
+    }])
+  }
+  
+  const removeRencanaPembelajaran = (index: number) => {
+    setRencanaPembelajaran(rencanaPembelajaran.filter((_, i) => i !== index))
   }
 
   // Rencana Tugas management
@@ -1061,16 +950,16 @@ export default function CreateRPSPage() {
     setRencanaTugas([...rencanaTugas, {
       nomor_tugas: nextNum,
       judul: '',
-      sub_cpmk_ids: [],
+      sub_cpmk_id: '',
       indikator_keberhasilan: '',
-      batas_waktu_minggu: 0,
-      batas_waktu_tanggal: '',
+      batas_waktu_minggu: 4,
       petunjuk_pengerjaan: '',
-      jenis_tugas: 'Individu',
+      jenis_tugas: 'individu',
       luaran_tugas: '',
       kriteria_penilaian: '',
-      teknik_penilaian: '',
-      bobot: 0
+      teknik_penilaian: 'Rubrik',
+      bobot: 10,
+      daftar_rujukan: ''
     }])
   }
 
@@ -1106,29 +995,6 @@ export default function CreateRPSPage() {
     const updated = [...analisisKetercapaian]
     updated[index] = { ...updated[index], [field]: value }
     setAnalisisKetercapaian(updated)
-  }
-
-  // Skala Penilaian management
-  const addSkalaPenilaian = () => {
-    setSkalaPenilaian([...skalaPenilaian, {
-      nilai_min: 0,
-      nilai_max: 0,
-      huruf_mutu: '',
-      bobot_nilai: 0,
-      is_lulus: false
-    }])
-  }
-
-  const removeSkalaPenilaian = (index: number) => {
-    if (skalaPenilaian.length > 1) {
-      setSkalaPenilaian(skalaPenilaian.filter((_, i) => i !== index))
-    }
-  }
-
-  const updateSkalaPenilaian = (index: number, field: keyof SkalaPenilaianForm, value: string | number | boolean) => {
-    const updated = [...skalaPenilaian]
-    updated[index] = { ...updated[index], [field]: value }
-    setSkalaPenilaian(updated)
   }
 
   const selectedMK = mataKuliahList.find(mk => mk.id === formData.mata_kuliah_id)
@@ -1278,7 +1144,7 @@ export default function CreateRPSPage() {
               <CardContent className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="mata_kuliah">Mata Kuliah *</Label>
+                    <Label htmlFor="mata_kuliah">Mata Kuliah</Label>
                     <Select
                       value={formData.mata_kuliah_id}
                       onValueChange={(value) => setFormData(prev => ({ ...prev, mata_kuliah_id: value }))}
@@ -1361,7 +1227,7 @@ export default function CreateRPSPage() {
 
                 {/* Informasi Penyusun */}
                 <div className="border-t pt-4">
-                  <h3 className="font-semibold mb-4">Informasi Penyusun & Pengesahan</h3>
+                  <h3 className="font-semibold mb-4 text-slate-800">Informasi Penyusun & Pengesahan</h3>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="penyusun_nama">Nama Penyusun</Label>
@@ -1468,7 +1334,7 @@ export default function CreateRPSPage() {
 
                 {/* Metode & Media Pembelajaran */}
                 <div className="border-t pt-4">
-                  <h3 className="font-semibold mb-4">Metode & Media Pembelajaran</h3>
+                  <h3 className="font-semibold mb-4 text-slate-800">Metode & Media Pembelajaran</h3>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label>Metode Pembelajaran</Label>
@@ -1476,7 +1342,7 @@ export default function CreateRPSPage() {
                         {['Ceramah', 'Diskusi', 'Praktikum', 'Tugas', 'Presentasi', 'Studi Kasus', 'Project Based Learning'].map(metode => (
                           <Badge 
                             key={metode}
-                            variant={formData.metode_pembelajaran.includes(metode) ? 'default' : 'outline'}
+                            variant={formData.metode_pembelajaran.includes(metode) ? 'success' : 'outline'}
                             className="cursor-pointer"
                             onClick={() => {
                               setFormData(prev => ({
@@ -1498,7 +1364,7 @@ export default function CreateRPSPage() {
                         {['Laptop', 'Projector', 'LMS', 'Whiteboard', 'Video', 'E-Book', 'Software'].map(media => (
                           <Badge 
                             key={media}
-                            variant={formData.media_pembelajaran.includes(media) ? 'default' : 'outline'}
+                            variant={formData.media_pembelajaran.includes(media) ? 'success' : 'outline'}
                             className="cursor-pointer"
                             onClick={() => {
                               setFormData(prev => ({
@@ -1650,137 +1516,158 @@ export default function CreateRPSPage() {
           <TabsContent value="rencana" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Rencana Pembelajaran Mingguan</CardTitle>
-                <CardDescription>Detail topik dan aktivitas untuk setiap pertemuan</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Rencana Pembelajaran Mingguan</CardTitle>
+                    <CardDescription>Detail topik dan aktivitas untuk setiap minggu pembelajaran</CardDescription>
+                  </div>
+                  <Button onClick={addRencanaPembelajaran}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Tambah Minggu
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="space-y-2">
+                {rencanaPembelajaran.length === 0 && (
+                  <p className="text-sm text-slate-500 italic text-center py-8">
+                    Belum ada rencana pembelajaran. Klik &quot;Tambah Minggu&quot; untuk memulai.
+                  </p>
+                )}
                 {rencanaPembelajaran.map((rp, index) => (
                   <Card 
                     key={index} 
                     className={`cursor-pointer transition-colors ${
-                      expandedWeek === rp.pertemuan ? 'border-blue-300 bg-blue-50/50' : 'hover:bg-slate-50'
+                      expandedWeek === rp.minggu_ke ? 'border-blue-300 bg-blue-50/50' : 'hover:bg-slate-50'
                     }`}
                   >
                     <CardContent className="p-4">
                       <div 
                         className="flex items-center justify-between"
-                        onClick={() => setExpandedWeek(expandedWeek === rp.pertemuan ? null : rp.pertemuan)}
+                        onClick={() => setExpandedWeek(expandedWeek === rp.minggu_ke ? null : rp.minggu_ke)}
                       >
                         <div className="flex items-center gap-3">
-                          <Badge variant="outline">Minggu {rp.pertemuan}</Badge>
+                          <Badge variant="outline">Minggu {rp.minggu_ke}</Badge>
                           <span className="text-sm text-slate-600">
                             {rp.topik || "(Belum diisi)"}
                           </span>
+                          {rp.bobot_persen > 0 && (
+                            <Badge variant="info">{rp.bobot_persen}%</Badge>
+                          )}
                         </div>
-                        {expandedWeek === rp.pertemuan ? (
-                          <ChevronUp className="h-5 w-5 text-slate-400" />
-                        ) : (
-                          <ChevronDown className="h-5 w-5 text-slate-400" />
-                        )}
+                        <div className="flex items-center gap-2">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              removeRencanaPembelajaran(index)
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                          {expandedWeek === rp.minggu_ke ? (
+                            <ChevronUp className="h-5 w-5 text-slate-400" />
+                          ) : (
+                            <ChevronDown className="h-5 w-5 text-slate-400" />
+                          )}
+                        </div>
                       </div>
                       
-                      {expandedWeek === rp.pertemuan && (
+                      {expandedWeek === rp.minggu_ke && (
                         <div className="mt-4 space-y-4 pt-4 border-t">
+                          {/* Minggu dan Sub-CPMK */}
                           <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
-                              <Label>Topik/Materi</Label>
-                              <Input
-                                placeholder="Topik pertemuan..."
-                                value={rp.topik}
-                                onChange={(e) => updateRencanaPembelajaran(index, 'topik', e.target.value)}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Metode Pembelajaran</Label>
-                              <Input
-                                placeholder="Ceramah dan Praktik, dll"
-                                value={rp.metode}
-                                onChange={(e) => updateRencanaPembelajaran(index, 'metode', e.target.value)}
-                              />
-                            </div>
-                          </div>
-                          
-                          <div className="grid gap-4 md:grid-cols-2">
-                            <div className="space-y-2">
-                              <Label>Materi</Label>
-                              <Textarea
-                                placeholder="Deskripsi materi pembelajaran..."
-                                value={rp.materi}
-                                onChange={(e) => updateRencanaPembelajaran(index, 'materi', e.target.value)}
-                                rows={2}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Media & LMS</Label>
-                              <Input
-                                placeholder="Google Classroom, VS Code, dll"
-                                value={rp.media_lms}
-                                onChange={(e) => updateRencanaPembelajaran(index, 'media_lms', e.target.value)}
-                              />
-                            </div>
-                          </div>
-                          
-                          <div className="grid gap-4 md:grid-cols-4">
-                            <div className="space-y-2">
-                              <Label>Total Waktu (menit)</Label>
+                              <Label>Minggu Ke-</Label>
                               <Input
                                 type="number"
-                                value={rp.waktu}
-                                onChange={(e) => updateRencanaPembelajaran(index, 'waktu', parseInt(e.target.value) || 150)}
+                                min={1}
+                                max={16}
+                                value={rp.minggu_ke}
+                                onChange={(e) => updateRencanaPembelajaran(index, 'minggu_ke', parseInt(e.target.value) || 1)}
                               />
                             </div>
                             <div className="space-y-2">
-                              <Label>Tatap Muka (SKS)</Label>
-                              <Input
-                                type="number"
-                                value={rp.waktu_tm}
-                                onChange={(e) => updateRencanaPembelajaran(index, 'waktu_tm', parseInt(e.target.value) || 0)}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Belajar Mandiri (jam)</Label>
-                              <Input
-                                type="number"
-                                value={rp.waktu_bm}
-                                onChange={(e) => updateRencanaPembelajaran(index, 'waktu_bm', parseInt(e.target.value) || 0)}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Tugas Terstruktur (jam)</Label>
-                              <Input
-                                type="number"
-                                value={rp.waktu_pt}
-                                onChange={(e) => updateRencanaPembelajaran(index, 'waktu_pt', parseInt(e.target.value) || 0)}
-                              />
+                              <Label>Kemampuan Akhir Tiap Tahapan (Sub-CPMK)</Label>
+                              <Select
+                                value={rp.sub_cpmk_id || "none"}
+                                onValueChange={(value) => updateRencanaPembelajaran(index, 'sub_cpmk_id', value === "none" ? "" : value)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Pilih Sub-CPMK" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">Tidak Ada</SelectItem>
+                                  {subCpmkList.flat().map((sub) => (
+                                    <SelectItem key={sub.kode} value={sub.kode}>
+                                      {sub.kode}: {sub.deskripsi}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </div>
                           </div>
 
-                          <div className="grid gap-4 md:grid-cols-2">
-                            <div className="space-y-2">
-                              <Label>Teknik Penilaian</Label>
-                              <Input
-                                placeholder="Observasi dan Praktik, dll"
-                                value={rp.teknik_penilaian}
-                                onChange={(e) => updateRencanaPembelajaran(index, 'teknik_penilaian', e.target.value)}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Kriteria Penilaian</Label>
-                              <Input
-                                placeholder="Kriteria penilaian..."
-                                value={rp.kriteria_penilaian}
-                                onChange={(e) => updateRencanaPembelajaran(index, 'kriteria_penilaian', e.target.value)}
-                              />
-                            </div>
-                          </div>
-
+                          {/* Topik & Sub-Topik */}
                           <div className="space-y-2">
-                            <Label>Bobot Penilaian (%)</Label>
+                            <Label>Topik & Sub-Topik Materi</Label>
                             <Input
-                              type="number"
-                              className="w-32"
-                              value={rp.bobot_penilaian}
-                              onChange={(e) => updateRencanaPembelajaran(index, 'bobot_penilaian', parseInt(e.target.value) || 0)}
+                              placeholder="Topik utama pertemuan..."
+                              value={rp.topik}
+                              onChange={(e) => updateRencanaPembelajaran(index, 'topik', e.target.value)}
+                            />
+                            <Textarea
+                              placeholder="Sub-topik (satu per baris)..."
+                              value={rp.sub_topik?.join('\n') || ''}
+                              onChange={(e) => updateRencanaPembelajaran(index, 'sub_topik', e.target.value.split('\n').filter(s => s.trim()))}
+                              rows={3}
+                              className="text-sm"
+                            />
+                            <p className="text-xs text-slate-500">Masukkan sub-topik, satu per baris</p>
+                          </div>
+
+                          {/* Metode Pembelajaran */}
+                          <div className="space-y-2">
+                            <Label>Metode Pembelajaran (Skema Blended Learning)</Label>
+                            <Textarea
+                              placeholder="Contoh:&#10;Tatap Muka: Ceramah, Diskusi, dan Praktikum (3 SKS)&#10;Daring: Forum diskusi di LMS (1 SKS)"
+                              value={rp.metode_pembelajaran}
+                              onChange={(e) => updateRencanaPembelajaran(index, 'metode_pembelajaran', e.target.value)}
+                              rows={3}
+                            />
+                          </div>
+
+                          {/* Waktu */}
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label>Waktu (Menit)</Label>
+                              <Input
+                                type="number"
+                                value={rp.waktu_menit}
+                                onChange={(e) => updateRencanaPembelajaran(index, 'waktu_menit', parseInt(e.target.value) || 150)}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Bobot (%)</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={rp.bobot_persen}
+                                onChange={(e) => updateRencanaPembelajaran(index, 'bobot_persen', parseFloat(e.target.value) || 0)}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Penilaian */}
+                          <div className="space-y-2">
+                            <Label>Teknik & Kriteria Penilaian</Label>
+                            <Textarea
+                              placeholder="Contoh:&#10;Teknik: Observasi partisipasi dan Quiz&#10;Kriteria: Keaktifan, pemahaman konsep dasar, ketepatan jawaban"
+                              value={rp.teknik_kriteria}
+                              onChange={(e) => updateRencanaPembelajaran(index, 'teknik_kriteria', e.target.value)}
+                              rows={3}
                             />
                           </div>
                         </div>
@@ -1923,148 +1810,6 @@ export default function CreateRPSPage() {
             </Card>
           </TabsContent>
 
-          {/* Tab: Evaluasi */}
-          <TabsContent value="evaluasi" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Komponen Evaluasi</CardTitle>
-                    <CardDescription>Bobot penilaian (total harus 100%)</CardDescription>
-                  </div>
-                  <Button onClick={() => setEvaluasi([...evaluasi, {
-                    komponen: "",
-                    teknik_penilaian: "",
-                    instrumen: "",
-                    bobot: 0,
-                    minggu_mulai: 1,
-                    minggu_selesai: 16,
-                    topik_materi: "",
-                    jenis_assessment: "Formatif",
-                    urutan: evaluasi.length + 1
-                  }])}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Tambah Evaluasi
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {formErrors.evaluasi && (
-                  <p className="text-sm text-red-500">{formErrors.evaluasi}</p>
-                )}
-                
-                {evaluasi.map((ev, index) => (
-                  <Card key={index} className="bg-slate-50">
-                    <CardContent className="p-4 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <Badge variant="outline">Evaluasi {index + 1}</Badge>
-                        {evaluasi.length > 1 && (
-                          <Button variant="ghost" size="sm" onClick={() => setEvaluasi(evaluasi.filter((_, i) => i !== index))}>
-                            <Trash2 className="h-4 w-4 text-red-500" />
-                          </Button>
-                        )}
-                      </div>
-                      
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label>Komponen *</Label>
-                          <Input
-                            placeholder="Contoh: UTS, UAS, Tugas, Quiz"
-                            value={ev.komponen}
-                            onChange={(e) => updateEvaluasi(index, 'komponen', e.target.value)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Bobot (%) *</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            max="100"
-                            value={ev.bobot}
-                            onChange={(e) => updateEvaluasi(index, 'bobot', parseInt(e.target.value) || 0)}
-                          />
-                        </div>
-                      </div>
-                      
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label>Teknik Penilaian</Label>
-                          <Input
-                            placeholder="Contoh: Tes Tertulis, Penugasan, Observasi"
-                            value={ev.teknik_penilaian}
-                            onChange={(e) => updateEvaluasi(index, 'teknik_penilaian', e.target.value)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Instrumen</Label>
-                          <Input
-                            placeholder="Contoh: Soal Essay, Rubrik Penilaian"
-                            value={ev.instrumen}
-                            onChange={(e) => updateEvaluasi(index, 'instrumen', e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      
-                      <div className="grid gap-4 md:grid-cols-3">
-                        <div className="space-y-2">
-                          <Label>Minggu Mulai</Label>
-                          <Input
-                            type="number"
-                            min="1"
-                            max="16"
-                            value={ev.minggu_mulai}
-                            onChange={(e) => updateEvaluasi(index, 'minggu_mulai', parseInt(e.target.value) || 1)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Minggu Selesai</Label>
-                          <Input
-                            type="number"
-                            min="1"
-                            max="16"
-                            value={ev.minggu_selesai}
-                            onChange={(e) => updateEvaluasi(index, 'minggu_selesai', parseInt(e.target.value) || 16)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Jenis Assessment</Label>
-                          <Select
-                            value={ev.jenis_assessment}
-                            onValueChange={(val) => updateEvaluasi(index, 'jenis_assessment', val)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Pilih jenis" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Formatif">Formatif</SelectItem>
-                              <SelectItem value="Sumatif">Sumatif</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <Label>Topik Materi</Label>
-                        <Textarea
-                          placeholder="Topik materi yang dievaluasi..."
-                          value={ev.topik_materi}
-                          onChange={(e) => updateEvaluasi(index, 'topik_materi', e.target.value)}
-                          rows={2}
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-                
-                <div className="flex justify-end">
-                  <Badge variant={evaluasi.reduce((s, e) => s + e.bobot, 0) === 100 ? "default" : "danger"}>
-                    Total: {evaluasi.reduce((s, e) => s + e.bobot, 0)}%
-                  </Badge>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
           {/* Tab: Rencana Tugas */}
           <TabsContent value="tugas" className="space-y-4">
             <Card>
@@ -2106,17 +1851,39 @@ export default function CreateRPSPage() {
                           />
                         </div>
                         <div className="space-y-2">
+                          <Label>Sub-CPMK Terkait</Label>
+                          <Select
+                            value={tugas.sub_cpmk_id || "none"}
+                            onValueChange={(val) => updateRencanaTugas(index, 'sub_cpmk_id', val === "none" ? "" : val)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Pilih Sub-CPMK" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Tidak Ada</SelectItem>
+                              {subCpmkList.flat().map((subCpmk, idx) => (
+                                <SelectItem key={`${subCpmk.kode}-${idx}`} value={subCpmk.kode}>
+                                  {subCpmk.kode} - {subCpmk.deskripsi?.substring(0, 50)}...
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-slate-500">
+                            Sub-CPMK akan tersedia setelah RPS disimpan. Gunakan halaman Edit untuk memilih Sub-CPMK.
+                          </p>
+                        </div>
+                        <div className="space-y-2">
                           <Label>Jenis Tugas</Label>
                           <Select
                             value={tugas.jenis_tugas}
-                            onValueChange={(val: 'Individu' | 'Kelompok') => updateRencanaTugas(index, 'jenis_tugas', val)}
+                            onValueChange={(val: 'individu' | 'kelompok') => updateRencanaTugas(index, 'jenis_tugas', val)}
                           >
                             <SelectTrigger>
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="Individu">Individu</SelectItem>
-                              <SelectItem value="Kelompok">Kelompok</SelectItem>
+                              <SelectItem value="individu">Individu</SelectItem>
+                              <SelectItem value="kelompok">Kelompok</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -2127,6 +1894,51 @@ export default function CreateRPSPage() {
                           value={tugas.indikator_keberhasilan}
                           onChange={(e) => updateRencanaTugas(index, 'indikator_keberhasilan', e.target.value)}
                           placeholder="Indikator keberhasilan..."
+                          rows={2}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Petunjuk Pengerjaan</Label>
+                        <Textarea
+                          value={tugas.petunjuk_pengerjaan}
+                          onChange={(e) => updateRencanaTugas(index, 'petunjuk_pengerjaan', e.target.value)}
+                          placeholder="Petunjuk pengerjaan tugas..."
+                          rows={2}
+                        />
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>Luaran Tugas</Label>
+                          <Input
+                            value={tugas.luaran_tugas}
+                            onChange={(e) => updateRencanaTugas(index, 'luaran_tugas', e.target.value)}
+                            placeholder="Contoh: Laporan, Kode Program, Presentasi"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Teknik Penilaian</Label>
+                          <Input
+                            value={tugas.teknik_penilaian}
+                            onChange={(e) => updateRencanaTugas(index, 'teknik_penilaian', e.target.value)}
+                            placeholder="Contoh: Rubrik, Checklist"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Kriteria Penilaian</Label>
+                        <Textarea
+                          value={tugas.kriteria_penilaian}
+                          onChange={(e) => updateRencanaTugas(index, 'kriteria_penilaian', e.target.value)}
+                          placeholder="Kriteria penilaian tugas..."
+                          rows={2}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Daftar Rujukan</Label>
+                        <Textarea
+                          value={tugas.daftar_rujukan}
+                          onChange={(e) => updateRencanaTugas(index, 'daftar_rujukan', e.target.value)}
+                          placeholder="Daftar rujukan/referensi untuk tugas ini..."
                           rows={2}
                         />
                       </div>
@@ -2186,7 +1998,7 @@ export default function CreateRPSPage() {
                         </Button>
                       </div>
                       <div className="space-y-2">
-                        <Label>CPL *</Label>
+                        <Label>CPL Terkait Mata Kuliah *</Label>
                         <Select
                           value={analisis.cpl_id}
                           onValueChange={(val) => updateAnalisisKetercapaian(index, 'cpl_id', val)}
@@ -2195,13 +2007,24 @@ export default function CreateRPSPage() {
                             <SelectValue placeholder="Pilih CPL" />
                           </SelectTrigger>
                           <SelectContent>
-                            {cplList.map(cpl => (
-                              <SelectItem key={cpl.id} value={cpl.id}>
-                                {cpl.kode}
+                            {relatedCplList.length > 0 ? (
+                              relatedCplList.map(cpl => (
+                                <SelectItem key={cpl.id} value={cpl.id}>
+                                  {cpl.kode} - {cpl.deskripsi?.substring(0, 50)}...
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <SelectItem value="none" disabled>
+                                Tidak ada CPL terkait mata kuliah ini
                               </SelectItem>
-                            ))}
+                            )}
                           </SelectContent>
                         </Select>
+                        {relatedCplList.length === 0 && (
+                          <p className="text-xs text-amber-600">
+                            Belum ada CPL yang di-mapping ke mata kuliah ini. Hubungi Kaprodi untuk menambahkan mapping CPL-MK.
+                          </p>
+                        )}
                       </div>
                       <div className="grid gap-4 md:grid-cols-3">
                         <div className="space-y-2">
@@ -2283,94 +2106,6 @@ export default function CreateRPSPage() {
               </CardContent>
             </Card>
           </TabsContent>
-
-          {/* Tab: Skala Penilaian */}
-          <TabsContent value="skala" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Skala Penilaian</CardTitle>
-                    <CardDescription>Konversi nilai ke huruf mutu</CardDescription>
-                  </div>
-                  <Button onClick={addSkalaPenilaian} variant="outline">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Tambah Skala
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {skalaPenilaian.map((skala, index) => (
-                    <Card key={index} className="bg-slate-50">
-                      <CardContent className="p-3">
-                        <div className="grid gap-3 md:grid-cols-6 items-center">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Nilai Min</Label>
-                            <Input
-                              type="number"
-                              min="0"
-                              max="100"
-                              value={skala.nilai_min}
-                              onChange={(e) => updateSkalaPenilaian(index, 'nilai_min', parseInt(e.target.value) || 0)}
-                              className="h-8"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Nilai Max</Label>
-                            <Input
-                              type="number"
-                              min="0"
-                              max="100"
-                              value={skala.nilai_max}
-                              onChange={(e) => updateSkalaPenilaian(index, 'nilai_max', parseInt(e.target.value) || 100)}
-                              className="h-8"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Huruf Mutu</Label>
-                            <Input
-                              value={skala.huruf_mutu}
-                              onChange={(e) => updateSkalaPenilaian(index, 'huruf_mutu', e.target.value)}
-                              className="h-8"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Bobot Nilai</Label>
-                            <Input
-                              type="number"
-                              step="0.1"
-                              min="0"
-                              max="4"
-                              value={skala.bobot_nilai}
-                              onChange={(e) => updateSkalaPenilaian(index, 'bobot_nilai', parseFloat(e.target.value) || 0)}
-                              className="h-8"
-                            />
-                          </div>
-                          <div className="space-y-1 flex items-end">
-                            <Label className="text-xs mr-2">Lulus</Label>
-                            <input
-                              type="checkbox"
-                              checked={skala.is_lulus}
-                              onChange={(e) => updateSkalaPenilaian(index, 'is_lulus', e.target.checked)}
-                              className="h-4 w-4"
-                            />
-                          </div>
-                          <div className="flex justify-end">
-                            {skalaPenilaian.length > 1 && (
-                              <Button variant="ghost" size="sm" onClick={() => removeSkalaPenilaian(index)}>
-                                <Trash2 className="h-4 w-4 text-red-500" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
         </Tabs>
 
         {/* Footer Actions */}
@@ -2446,6 +2181,7 @@ export default function CreateRPSPage() {
           </CardContent>
         </Card>
       </div>
+      <AlertContainer />
     </DashboardLayout>
   )
 }

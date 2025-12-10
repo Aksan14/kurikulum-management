@@ -60,6 +60,7 @@ export default function DosenMappingPage() {
   const [rpsList, setRpsList] = useState<RPS[]>([])
   const [cplList, setCplList] = useState<CPL[]>([])
   const [cplMkMappings, setCplMkMappings] = useState<CPLMKMapping[]>([])
+  const [cpmkList, setCpmkList] = useState<CPMK[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   const [activeView, setActiveView] = useState<'cpmk' | 'cpl-mk'>('cpmk')
@@ -74,10 +75,11 @@ export default function DosenMappingPage() {
       setLoading(true)
       setError(null)
       
-      const [rpsRes, cplRes, mappingRes] = await Promise.all([
+      const [rpsRes, cplRes, mappingRes, cpmkRes] = await Promise.all([
         rpsService.getMy(),
         cplService.getAll({ limit: 100 }),
-        cplMKMappingService.getAll()
+        cplMKMappingService.getAll(),
+        rpsService.cpmk.getAllGlobal()
       ])
       
       let rpsData: RPS[] = []
@@ -106,10 +108,18 @@ export default function DosenMappingPage() {
           mappingData = mappingRes.data.data
         }
       }
+
+      let cpmkData: CPMK[] = []
+      if (cpmkRes.data) {
+        if (Array.isArray(cpmkRes.data)) {
+          cpmkData = cpmkRes.data
+        }
+      }
       
       setRpsList(rpsData)
       setCplList(cplData)
       setCplMkMappings(mappingData)
+      setCpmkList(cpmkData)
     } catch (err) {
       console.error('Error fetching data:', err)
       setError(err instanceof Error ? err.message : 'Gagal memuat data')
@@ -122,19 +132,20 @@ export default function DosenMappingPage() {
     fetchData()
   }, [fetchData])
 
-  // Extract all CPMK from RPS
-  const allCPMK: DisplayCPMK[] = rpsList.flatMap(rps => {
-    const cpmkList = rps.cpmk || []
-    return cpmkList.map((cpmk: CPMK) => ({
+  // Extract all CPMK from fetched CPMK list and enrich with RPS data
+  const allCPMK: DisplayCPMK[] = cpmkList.map(cpmk => {
+    // Find the RPS that contains this CPMK
+    const rps = rpsList.find(r => r.id === cpmk.rps_id)
+    return {
       id: cpmk.id,
       kode: cpmk.kode,
       deskripsi: cpmk.deskripsi,
       cplIds: cpmk.cpl_ids || [],
-      mataKuliah: rps.mata_kuliah_nama || rps.kode_mk,
-      mataKuliahId: rps.mata_kuliah_id,
-      rpsId: rps.id,
-      rpsStatus: rps.status
-    }))
+      mataKuliah: rps?.mata_kuliah_nama || rps?.kode_mk || 'Mata Kuliah Tidak Diketahui',
+      mataKuliahId: rps?.mata_kuliah_id || '',
+      rpsId: cpmk.rps_id,
+      rpsStatus: rps?.status || 'unknown'
+    }
   })
 
   // Filter CPMK
@@ -432,7 +443,7 @@ export default function DosenMappingPage() {
                   </div>
                 ) : (
                   <div className="text-center py-8">
-                    <Link2 className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+                    <Link2 className="h-12 w-12 text-slate-600 mx-auto mb-4" />
                     <h3 className="font-medium text-slate-900">Belum ada mapping CPL-MK</h3>
                     <p className="text-sm text-slate-500 mt-1">
                       Mapping CPL ke Mata Kuliah akan ditampilkan di sini

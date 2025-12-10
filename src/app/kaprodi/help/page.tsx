@@ -30,8 +30,10 @@ import {
   Lightbulb,
   Bug,
   Heart,
-  Send
+  Send,
+  Check
 } from 'lucide-react'
+import { useCustomAlert, AlertContainer } from '@/components/ui/custom-alert'
 
 
 interface FAQItem {
@@ -127,6 +129,7 @@ export default function HelpSupportPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [expandedFAQ, setExpandedFAQ] = useState<string | null>(null)
   const [isSubmittingTicket, setIsSubmittingTicket] = useState(false)
+  const { showAlert } = useCustomAlert()
   
   // New ticket form
   const [newTicket, setNewTicket] = useState({
@@ -160,7 +163,7 @@ export default function HelpSupportPage() {
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1500))
       
-      alert('Ticket support berhasil dikirim! Kami akan merespon dalam 24 jam.')
+      showAlert('success', 'Berhasil!', 'Ticket support berhasil dikirim! Kami akan merespon dalam 24 jam.')
       setNewTicket({
         title: '',
         description: '',
@@ -169,7 +172,7 @@ export default function HelpSupportPage() {
       })
     } catch (error) {
       console.error('Error submitting ticket:', error)
-      alert('Gagal mengirim ticket. Silakan coba lagi.')
+      showAlert('error', 'Gagal!', 'Terjadi kesalahan saat mengirim ticket. Silakan coba lagi.')
     } finally {
       setIsSubmittingTicket(false)
     }
@@ -177,7 +180,7 @@ export default function HelpSupportPage() {
 
   const markHelpful = (faqId: string) => {
     // Implementation would update FAQ helpful count
-    alert('Terima kasih atas feedback Anda!')
+    showAlert('success', 'Terima kasih!', 'Feedback Anda telah dicatat.')
   }
 
   const getStatusBadge = (status: string) => {
@@ -315,7 +318,7 @@ export default function HelpSupportPage() {
                 <div className="space-y-4">
                   {filteredFAQs.length === 0 ? (
                     <div className="text-center py-8">
-                      <HelpCircle className="h-12 w-12 text-slate-400 mx-auto mb-4" />
+                      <HelpCircle className="h-12 w-12 text-slate-600 mx-auto mb-4" />
                       <p className="text-slate-600">
                         Tidak ditemukan FAQ yang sesuai dengan pencarian Anda
                       </p>
@@ -580,6 +583,7 @@ export default function HelpSupportPage() {
           </div>
         </div>
       </div>
+      <AlertContainer />
     </DashboardLayout>
   )
 }
